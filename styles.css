@@ -6628,6 +6628,36 @@ textarea,
   display: none !important;
 }
 
+.cover-card,
+.daily-card,
+.compose-card,
+.profile-card,
+.account-card,
+.personalize-card,
+.mood-friends-card,
+.human-friends-card,
+.public-identity-card,
+.empty-state,
+.post-card,
+.pet-card,
+.menu-list,
+.stats-row article,
+.calendar-card,
+.chat-panel,
+.detail-dialog,
+.reply-dialog,
+.action-dialog,
+.companion-insights button {
+  border-color: rgba(255, 255, 255, 0.68) !important;
+  background: rgba(255, 255, 255, 0.66) !important;
+  box-shadow: 0 14px 34px rgba(32, 37, 50, 0.13) !important;
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+
+body.logged-out .account-card {
+  background: rgba(255, 255, 255, 0.76) !important;
+}
+
 @media (max-width: 480px) {
   .topbar,
   .native-app .topbar {
