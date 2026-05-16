@@ -454,7 +454,7 @@ function sanitizeChatMessage(message) {
   const role = message.role === "user" ? "user" : "pet";
   const id = cleanText(message.id, 120) || crypto.randomUUID();
   const text = cleanText(message.text, 2000);
-  const images = normalizeImages(message.images);
+  const images = sanitizeImages(message.images);
   const createdAt = cleanText(message.createdAt, 40) || new Date().toISOString();
   return { id, role, text, images, createdAt };
 }
@@ -498,7 +498,7 @@ function sanitizeFriendChatMessage(message, fallbackAuthorId = "") {
   if (!isPlainObject(message)) return null;
   const authorId = cleanText(message.authorId, 120) || fallbackAuthorId;
   const text = cleanText(message.text, 2000);
-  const images = normalizeImages(message.images);
+  const images = sanitizeImages(message.images);
   if (!authorId || (!text && !images.length)) return null;
   return {
     id: cleanText(message.id, 120) || crypto.randomUUID(),
