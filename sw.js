@@ -1,4 +1,4 @@
-const CACHE_NAME = "wuquan-app-v4";
+const CACHE_NAME = "wuquan-app-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -34,6 +34,21 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  const requestUrl = new URL(event.request.url);
+  const isAppFile = ["document", "script", "style"].includes(event.request.destination)
+    || requestUrl.pathname.endsWith(".html")
+    || requestUrl.pathname.endsWith(".js")
+    || requestUrl.pathname.endsWith(".css");
+  if (isAppFile) {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      }).catch(() => caches.match(event.request))
+    );
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
