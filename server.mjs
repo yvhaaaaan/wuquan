@@ -719,6 +719,7 @@ function publicPostForResponse(post) {
     comments: Array.isArray(post.comments) ? post.comments : [],
     aiStatus: post.aiStatus || (Array.isArray(post.comments) && post.comments.length ? "ai" : "local"),
     publicComments: Array.isArray(post.publicComments) ? post.publicComments : [],
+    publicHugs: Array.isArray(post.publicHugs) ? post.publicHugs : [],
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
   };
@@ -1043,6 +1044,7 @@ async function handlePublicDiaries(req, res, segments, body) {
       comments: incomingComments?.length ? incomingComments : (existing?.comments || []),
       aiStatus: incomingComments?.length ? (cleanText(body.aiStatus, 40) || "ai") : (existing?.aiStatus || cleanText(body.aiStatus, 40) || "local"),
       publicComments: existing?.publicComments || [],
+      publicHugs: existing?.publicHugs || [],
       createdAt: cleanText(body.createdAt, 80) || now,
       updatedAt: now,
       deletedAt: null,
@@ -1107,6 +1109,31 @@ async function handlePublicDiaries(req, res, segments, body) {
     post.updatedAt = new Date().toISOString();
     await persistDb();
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (postId && segments[4] === "hugs" && segments.length === 5 && req.method === "POST") {
+    const user = authenticate(req);
+    const post = db.publicDiaries.find((item) => item.id === postId && !item.deletedAt);
+    if (!post) throw httpError(404, "Public diary was not found.", "post_not_found");
+    if (isBlockedBetween(user.id, post.author?.id)) throw httpError(403, "This interaction is blocked.", "blocked");
+    post.publicHugs = Array.isArray(post.publicHugs) ? post.publicHugs : [];
+    const index = post.publicHugs.findIndex((item) => item.userId === user.id);
+    let hugged = false;
+    if (index === -1) {
+      hugged = true;
+      post.publicHugs.push({
+        userId: user.id,
+        name: user.name,
+        avatar: user.avatar,
+        createdAt: new Date().toISOString(),
+      });
+    } else {
+      post.publicHugs.splice(index, 1);
+    }
+    post.updatedAt = new Date().toISOString();
+    await persistDb();
+    sendJson(res, 200, { hugged, publicHugs: post.publicHugs, post: publicPostForResponse(post) });
     return true;
   }
 

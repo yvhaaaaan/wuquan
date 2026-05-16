@@ -392,6 +392,7 @@ function normalizeDiaries(items) {
       likes: [],
       comments,
       publicComments: Array.isArray(item.publicComments) ? item.publicComments : [],
+      publicHugs: Array.isArray(item.publicHugs) ? item.publicHugs : [],
       mood: "秘密",
       audience: "pets",
       favorite: false,
@@ -399,6 +400,7 @@ function normalizeDiaries(items) {
       ...item,
       comments,
       publicComments: Array.isArray(item.publicComments) ? item.publicComments : [],
+      publicHugs: Array.isArray(item.publicHugs) ? item.publicHugs : [],
     };
   });
   if (changed) saveJson(STORAGE_KEY, normalized);
@@ -1379,6 +1381,10 @@ function getPublicComments(diary) {
   return Array.isArray(diary.publicComments) ? diary.publicComments : [];
 }
 
+function getPublicHugs(diary) {
+  return Array.isArray(diary.publicHugs) ? diary.publicHugs : [];
+}
+
 function mergeFeedPost(localPost = {}, publicPost = {}) {
   const localLikes = Array.isArray(localPost.likes) ? localPost.likes : [];
   const publicLikes = Array.isArray(publicPost.likes) ? publicPost.likes : [];
@@ -1390,6 +1396,7 @@ function mergeFeedPost(localPost = {}, publicPost = {}) {
     author: publicPost.author || localPost.author,
     commentIdentity: publicPost.commentIdentity || localPost.commentIdentity,
     publicComments: getPublicComments(publicPost).length ? getPublicComments(publicPost) : getPublicComments(localPost),
+    publicHugs: getPublicHugs(publicPost).length ? getPublicHugs(publicPost) : getPublicHugs(localPost),
     likes: localLikes.length ? localLikes : publicLikes,
     comments: localComments.length ? localComments : publicComments,
     aiStatus: localComments.length ? (localPost.aiStatus || "ai") : (publicPost.aiStatus || localPost.aiStatus || "local"),
@@ -1446,6 +1453,29 @@ async function deletePublicComment(postId, commentId) {
     await serverRequest(`/api/diaries/public/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`, { method: "DELETE" });
   } catch (error) {
     console.warn("Public comment delete sync failed:", error);
+  }
+}
+
+async function togglePublicHug(postId) {
+  const diary = findDiaryById(postId);
+  if (!diary || diary.audience !== "public") return;
+  try {
+    const data = await serverRequest(`/api/diaries/public/${encodeURIComponent(postId)}/hugs`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const nextHugs = Array.isArray(data.publicHugs) ? data.publicHugs : [];
+    const localDiary = diaries.find((item) => item.id === postId);
+    const publicDiary = publicDiaries.find((item) => item.id === postId);
+    if (localDiary) localDiary.publicHugs = nextHugs;
+    if (publicDiary) publicDiary.publicHugs = nextHugs;
+    diary.publicHugs = nextHugs;
+    saveDiaries();
+    renderAll();
+    toast(data.hugged ? "已给这个公开树洞一个抱抱" : "已收回抱抱");
+  } catch (error) {
+    console.warn("Public hug sync failed:", error);
+    toast(`抱抱失败：${error.message || "请稍后再试"}`);
   }
 }
 
@@ -1667,7 +1697,10 @@ function filteredDiaries() {
       (activeFeedFilter === "today" && isToday(item.createdAt)) ||
       (activeFeedFilter === "favorite" && item.favorite);
     return keywordMatched && dayMatched && filterMatched;
-  }).sort((a, b) => Number(b.favorite) - Number(a.favorite));
+  }).sort((a, b) => (
+    Number(b.favorite) - Number(a.favorite) ||
+    String(b.createdAt).localeCompare(String(a.createdAt))
+  ));
 }
 
 function renderTimeline() {
@@ -1693,14 +1726,19 @@ function renderTimeline() {
 
   timeline.innerHTML = visible.map((item) => {
     const likePets = item.likes.map(getPet).filter(Boolean);
+    const publicHugs = getPublicHugs(item);
+    const huggedByMe = publicHugs.some((hug) => hug.userId === userProfile.id);
     const previewLikePets = likePets.slice(0, 8);
-    const hiddenLikeCount = Math.max(0, likePets.length - previewLikePets.length);
+    const previewPublicHugs = publicHugs.slice(0, Math.max(0, 8 - previewLikePets.length));
+    const totalHugCount = likePets.length + publicHugs.length;
+    const hiddenLikeCount = Math.max(0, totalHugCount - previewLikePets.length - previewPublicHugs.length);
     const comments = item.comments.map((comment) => ({ ...comment, pet: getPet(comment.petId) })).filter((comment) => comment.pet);
     const allPublicComments = getPublicComments(item);
     const publicComments = allPublicComments.slice(-3);
     const previewComments = comments.slice(-3);
-    const hiddenCommentCount = Math.max(0, comments.length - previewComments.length);
-    const hiddenPublicCommentCount = Math.max(0, allPublicComments.length - publicComments.length);
+    const totalEchoCount = comments.length + allPublicComments.length;
+    const shownEchoCount = previewComments.length + publicComments.length;
+    const hiddenEchoCount = Math.max(0, totalEchoCount - shownEchoCount);
     const statusText = item.aiStatus === "loading" ? "回声生成中" : item.aiStatus === "ai" ? "AI 回声" : "本地回声";
     const publicLabel = item.publicStatus === "withdrawn" ? "已撤回公开" : item.publicStatus === "synced" ? "公开树洞" : "公开待同步";
     const audienceText = item.audience === "public" ? publicLabel : "动物朋友";
@@ -1724,13 +1762,14 @@ function renderTimeline() {
             ${item.images.length ? `<div class="photo-grid">${item.images.map((src) => `<img src="${src}" alt="日记图片" loading="lazy" data-preview-image="${escapeHtml(src)}" />`).join("")}</div>` : ""}
             <div class="likes-row">
               ${previewLikePets.map((pet) => petAvatar(pet, "mini")).join("")}
+              ${previewPublicHugs.map((hug) => `<span class="user-avatar mini" style='${avatarStyle(hug.avatar || { type: "preset", index: 0 })}'></span>`).join("")}
               ${hiddenLikeCount ? `<b class="more-likes">+${hiddenLikeCount}</b>` : ""}
-              <span>${item.aiStatus === "loading" ? "小伙伴正在赶来抱抱" : `${likePets.length} 只小伙伴给了抱抱`}</span>
+              <span>${item.aiStatus === "loading" ? "小伙伴正在赶来抱抱" : `${totalHugCount} 个抱抱`}</span>
             </div>
             <div class="comment-list">
               ${item.aiStatus === "loading" ? `<div class="comment-bubble loading-echo"><div class="comment-content"><p><strong>树洞回声</strong>小动物们正在读你的树洞...</p></div></div>` : ""}
               ${previewComments.map((comment) => `
-                <div class="comment-bubble">
+                <div class="comment-bubble clickable" data-action="replyComment" data-comment-id="${comment.id}" role="button" tabindex="0" aria-label="回复${escapeHtml(comment.pet.name)}">
                   ${petAvatar(comment.pet, "mini")}
                   <div class="comment-content">
                     ${comment.emotion ? `<small class="comment-emotion">${escapeHtml(comment.emotion)}</small>` : ""}
@@ -1740,31 +1779,28 @@ function renderTimeline() {
                   </div>
                 </div>
               `).join("")}
-              ${hiddenCommentCount ? `<button class="more-comments" type="button" data-action="detail">查看全部 ${comments.length} 条回声</button>` : ""}
+              ${publicComments.map((comment) => `
+                <div class="comment-bubble public-echo">
+                  <span class="user-avatar mini" style='${avatarStyle(comment.identity?.avatar || { type: "preset", index: 0 })}'></span>
+                  <div class="comment-content">
+                    <small class="comment-emotion">真人回声</small>
+                    <p><strong>${escapeHtml(comment.identity?.displayName || "匿名")}</strong>${escapeHtml(comment.text)}</p>
+                  </div>
+                </div>
+              `).join("")}
+              ${hiddenEchoCount ? `<button class="more-comments" type="button" data-action="detail">查看全部 ${totalEchoCount} 条回声</button>` : ""}
             </div>
             ${item.audience === "public" ? `
               <div class="public-comment-inline">
-                <div class="public-comment-title">公开评论</div>
-                ${publicComments.length ? `<div class="public-comment-list compact">
-                  ${publicComments.map((comment) => `
-                    <div class="public-comment compact">
-                      <div class="public-comment-meta">
-                        <strong>${escapeHtml(comment.identity?.displayName || "匿名")}</strong>
-                        <span>${formatTime(comment.createdAt)}</span>
-                      </div>
-                      <p>${escapeHtml(comment.text)}</p>
-                    </div>
-                  `).join("")}
-                </div>` : ""}
-                ${hiddenPublicCommentCount ? `<button class="more-comments" type="button" data-action="detail">查看全部 ${allPublicComments.length} 条评论</button>` : ""}
                 <form class="public-comment-form compact" data-public-comment-form="${item.id}">
-                  <input maxlength="240" placeholder="直接评论公开树洞" required />
-                  <button class="soft-button" type="submit">评论</button>
+                  <input maxlength="240" placeholder="写一条真人回声" required />
+                  <button class="soft-button" type="submit">回声</button>
                 </form>
               </div>
             ` : ""}
             <div class="post-actions">
               <button type="button" data-action="favorite">${item.favorite ? "已收藏" : "收藏"}</button>
+              ${item.audience === "public" ? `<button type="button" data-action="hugPublic">${huggedByMe ? "已抱抱" : "抱抱"}</button>` : ""}
               <button type="button" data-action="detail">详情</button>
               ${isMine ? `<button type="button" data-action="regenerate">重抽回声</button>` : ""}
               ${isMine && item.audience === "public" && item.publicStatus !== "withdrawn" ? `<button type="button" data-action="unpublish">撤回公开</button>` : ""}
@@ -2117,7 +2153,7 @@ async function sendHumanChatMessage(text, images = []) {
 
 function renderProfile() {
   const likes = diaries.reduce((sum, item) => sum + item.likes.length, 0);
-  const comments = diaries.reduce((sum, item) => sum + item.comments.length, 0);
+  const comments = diaries.reduce((sum, item) => sum + item.comments.length + getPublicComments(item).length, 0);
   document.body.classList.toggle("logged-out", !authState.token);
   $("#profileAvatar").style.cssText = avatarStyle(userProfile.avatar);
   $("#profileTitle").textContent = userProfile.name || "我的吾圈树洞";
@@ -2295,6 +2331,7 @@ function showDetail(id) {
   $("#detailDialog").dataset.postId = item.id;
   const comments = item.comments.map((comment) => ({ ...comment, pet: getPet(comment.petId) })).filter((comment) => comment.pet);
   const likes = item.likes.map(getPet).filter(Boolean);
+  const publicHugs = getPublicHugs(item);
   $("#detailContent").innerHTML = `
     <div class="mood-chip detail-mood">${escapeHtml(item.mood || "普通")} · ${item.audience === "public" ? "公开树洞" : "动物朋友"} · ${formatTime(item.createdAt)}</div>
     <p class="post-text">${escapeHtml(item.text)}</p>
@@ -2305,12 +2342,15 @@ function showDetail(id) {
     </div>
     <div class="detail-section">
       <strong>给你抱抱的小伙伴</strong>
-      <div class="avatar-cloud">${likes.map((pet) => petAvatar(pet, "mini")).join("")}</div>
+      <div class="avatar-cloud">
+        ${likes.map((pet) => petAvatar(pet, "mini")).join("")}
+        ${publicHugs.map((hug) => `<span class="user-avatar mini" style='${avatarStyle(hug.avatar || { type: "preset", index: 0 })}'></span>`).join("")}
+      </div>
     </div>
     <div class="detail-section">
       <strong>萌宠回声</strong>
       ${comments.map((comment) => `
-        <div class="comment-bubble">
+        <div class="comment-bubble clickable" data-detail-action="replyComment" data-id="${item.id}" data-comment-id="${comment.id}" role="button" tabindex="0" aria-label="回复${escapeHtml(comment.pet.name)}">
           ${petAvatar(comment.pet, "mini")}
           <div class="comment-content">
             ${comment.emotion ? `<small class="comment-emotion">${escapeHtml(comment.emotion)}</small>` : ""}
@@ -2325,10 +2365,10 @@ function showDetail(id) {
   if (item.audience === "public") {
     $("#detailContent").innerHTML += `
       <div class="detail-section public-comment-section">
-        <strong>公众评论</strong>
+        <strong>真人回声</strong>
         <form class="public-comment-form" id="publicCommentForm">
-          <textarea id="publicCommentInput" maxlength="240" placeholder="以原昵称或隐藏身份评论公开树洞" required></textarea>
-          <button class="publish-button compact" type="submit">发表评论</button>
+          <textarea id="publicCommentInput" maxlength="240" placeholder="以原昵称或隐藏身份写一条真人回声" required></textarea>
+          <button class="publish-button compact" type="submit">发表回声</button>
         </form>
         <div class="public-comment-list">
           ${getPublicComments(item).map((comment) => `
@@ -2939,8 +2979,8 @@ function bindEvents() {
   $("#chatPanel").addEventListener("touchmove", () => clearTimeout(longPressTimer));
 
   $("#timeline").addEventListener("click", async (event) => {
-    const button = event.target.closest("button[data-action]");
-    const action = button?.dataset.action;
+    const target = event.target.closest("[data-action]");
+    const action = target?.dataset.action;
     const card = event.target.closest(".post-card");
     if (!action || !card) return;
     if (action === "toggleText") {
@@ -2948,7 +2988,8 @@ function bindEvents() {
       renderTimeline();
     }
     if (action === "favorite") toggleFavorite(card.dataset.id);
-    if (action === "replyComment") await addCommentReply(card.dataset.id, button.dataset.commentId);
+    if (action === "hugPublic") await togglePublicHug(card.dataset.id);
+    if (action === "replyComment") await addCommentReply(card.dataset.id, target.dataset.commentId);
     if (action === "detail") showDetail(card.dataset.id);
     if (action === "regenerate") await regenerateDiary(card.dataset.id);
     if (action === "unpublish") await unpublishPublicDiary(card.dataset.id);
@@ -2956,14 +2997,24 @@ function bindEvents() {
     if (action === "delete" && confirm("确定删除这个私密树洞吗？")) deleteDiary(card.dataset.id);
   });
 
+  $("#timeline").addEventListener("keydown", async (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    const reply = event.target.closest(".comment-bubble.clickable[data-action='replyComment']");
+    const card = event.target.closest(".post-card");
+    if (!reply || !card) return;
+    event.preventDefault();
+    await addCommentReply(card.dataset.id, reply.dataset.commentId);
+  });
+
   $("#detailContent").addEventListener("click", async (event) => {
-    const action = event.target.dataset.detailAction;
-    const id = event.target.dataset.id;
-    const diary = diaries.find((item) => item.id === id);
+    const target = event.target.closest("[data-detail-action]");
+    const action = target?.dataset.detailAction;
+    const id = target?.dataset.id;
+    const diary = findDiaryById(id);
     if (!action) return;
     if (action === "openChat") {
       $("#detailDialog").close();
-      await openChatWithPet(event.target.dataset.petId);
+      await openChatWithPet(target.dataset.petId);
       return;
     }
     if (!diary) return;
@@ -2975,7 +3026,15 @@ function bindEvents() {
       $("#detailDialog").close();
       await regenerateDiary(id);
     }
-    if (action === "replyComment") await addCommentReply(id, event.target.dataset.commentId);
+    if (action === "replyComment") await addCommentReply(id, target.dataset.commentId);
+  });
+
+  $("#detailContent").addEventListener("keydown", async (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    const reply = event.target.closest(".comment-bubble.clickable[data-detail-action='replyComment']");
+    if (!reply) return;
+    event.preventDefault();
+    await addCommentReply(reply.dataset.id, reply.dataset.commentId);
   });
 
   $("#detailContent").addEventListener("click", async (event) => {

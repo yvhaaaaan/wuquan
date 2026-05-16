@@ -3609,6 +3609,19 @@ h3 {
   background: rgba(232, 247, 255, 0.62);
 }
 
+.comment-bubble.clickable {
+  cursor: pointer;
+}
+
+.comment-bubble.clickable:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.comment-bubble.public-echo {
+  background: rgba(255, 255, 255, 0.66);
+}
+
 .comment-bubble p {
   margin: 0;
   min-width: 0;
