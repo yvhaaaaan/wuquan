@@ -4603,6 +4603,40 @@ body.logged-out .auth-form label[hidden] {
   font-weight: 900;
 }
 
+.public-comment-inline {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.public-comment-list.compact {
+  gap: 6px;
+}
+
+.public-comment.compact {
+  padding: 8px 10px;
+}
+
+.public-comment-form.compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.public-comment-form.compact input {
+  min-width: 0;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.86);
+  font-weight: 750;
+}
+
+.public-comment-form.compact button {
+  align-self: stretch;
+  border-radius: 14px;
+  padding-inline: 13px;
+}
+
 .empty-friend {
   border-radius: 16px;
   padding: 13px;

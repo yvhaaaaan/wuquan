@@ -1628,6 +1628,7 @@ function renderTimeline() {
     const previewLikePets = likePets.slice(0, 8);
     const hiddenLikeCount = Math.max(0, likePets.length - previewLikePets.length);
     const comments = item.comments.map((comment) => ({ ...comment, pet: getPet(comment.petId) })).filter((comment) => comment.pet);
+    const publicComments = getPublicComments(item).slice(-2);
     const previewComments = comments.slice(0, 2);
     const hiddenCommentCount = Math.max(0, comments.length - previewComments.length);
     const statusText = item.aiStatus === "loading" ? "回声生成中" : item.aiStatus === "ai" ? "AI 回声" : "本地回声";
@@ -1671,6 +1672,25 @@ function renderTimeline() {
               `).join("")}
               ${hiddenCommentCount ? `<button class="more-comments" type="button" data-action="detail">查看全部 ${comments.length} 条回声</button>` : ""}
             </div>
+            ${item.audience === "public" ? `
+              <div class="public-comment-inline">
+                ${publicComments.length ? `<div class="public-comment-list compact">
+                  ${publicComments.map((comment) => `
+                    <div class="public-comment compact">
+                      <div class="public-comment-meta">
+                        <strong>${escapeHtml(comment.identity?.displayName || "匿名")}</strong>
+                        <span>${formatTime(comment.createdAt)}</span>
+                      </div>
+                      <p>${escapeHtml(comment.text)}</p>
+                    </div>
+                  `).join("")}
+                </div>` : ""}
+                <form class="public-comment-form compact" data-public-comment-form="${item.id}">
+                  <input maxlength="240" placeholder="直接评论公开树洞" required />
+                  <button class="soft-button" type="submit">评论</button>
+                </form>
+              </div>
+            ` : ""}
             <div class="post-actions">
               <button type="button" data-action="favorite">${item.favorite ? "已收藏" : "收藏"}</button>
               <button type="button" data-action="detail">详情</button>
@@ -2640,6 +2660,16 @@ function bindEvents() {
   });
 
   document.addEventListener("submit", async (event) => {
+    const inlineForm = event.target.closest("[data-public-comment-form]");
+    if (inlineForm) {
+      event.preventDefault();
+      const input = inlineForm.querySelector("input");
+      const text = input.value.trim();
+      if (!text) return;
+      await submitPublicComment(inlineForm.dataset.publicCommentForm, text);
+      input.value = "";
+      return;
+    }
     if (event.target.id !== "publicCommentForm") return;
     event.preventDefault();
     const input = $("#publicCommentInput");
