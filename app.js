@@ -1590,25 +1590,46 @@ function showReplyDialog(petName) {
     const dialog = document.createElement("dialog");
     dialog.className = "reply-dialog";
     dialog.innerHTML = `
-      <form method="dialog" class="reply-form">
+      <form class="reply-form" novalidate>
         <div class="dialog-head">
           <strong>回复 ${escapeHtml(petName)}</strong>
-          <button class="icon-button ghost" value="cancel" type="submit" aria-label="关闭">×</button>
+          <button class="icon-button ghost" value="cancel" type="button" data-reply-close aria-label="关闭">×</button>
         </div>
-        <textarea maxlength="240" placeholder="直接回它一句..." required></textarea>
+        <textarea maxlength="240" placeholder="直接回它一句..."></textarea>
         <div class="emoji-bar compact reply-emoji-bar" data-reply-emoji="true" aria-label="插入表情"></div>
         <div class="reply-actions">
-          <button class="soft-button" value="cancel" type="submit">取消</button>
+          <button class="soft-button" value="cancel" type="button" data-reply-close>取消</button>
           <button class="publish-button compact" value="ok" type="submit">发送</button>
         </div>
       </form>
     `;
     document.body.appendChild(dialog);
     renderEmojiBars(dialog);
+    const form = dialog.querySelector("form");
     const textarea = dialog.querySelector("textarea");
+    const closeDialog = (value = "cancel") => {
+      dialog.returnValue = value;
+      dialog.close(value);
+    };
     dialog.querySelector(".emoji-bar").addEventListener("click", (event) => {
       const button = event.target.closest("button[data-emoji]");
       if (button) insertAtCursor(textarea, button.dataset.emoji);
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog("cancel");
+    });
+    dialog.querySelectorAll("[data-reply-close]").forEach((button) => {
+      button.addEventListener("click", () => closeDialog("cancel"));
+    });
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const value = textarea.value.trim();
+      if (!value) {
+        toast("写点内容再发送");
+        textarea.focus();
+        return;
+      }
+      closeDialog("ok");
     });
     dialog.addEventListener("close", () => {
       const value = dialog.returnValue === "ok" ? textarea.value.trim() : "";
@@ -2563,6 +2584,9 @@ function bindEvents() {
   $("#composeShortcut").addEventListener("click", () => showTab("compose"));
   $("#profileShortcut").addEventListener("click", () => showTab("profile"));
   $("#closeDetail").addEventListener("click", () => $("#detailDialog").close());
+  $("#detailDialog").addEventListener("click", (event) => {
+    if (event.target === $("#detailDialog")) $("#detailDialog").close();
+  });
   $("#detailDialog").addEventListener("close", () => {
     delete $("#detailDialog").dataset.postId;
   });
