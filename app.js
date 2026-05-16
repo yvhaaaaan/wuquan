@@ -151,6 +151,12 @@ const MOOD_COLORS = {
   想念: "#d8efff",
   压力: "#fff0be",
   开心: "#dff7e7",
+  平静: "#d8efff",
+  期待: "#dff7e7",
+  兴奋: "#fff0be",
+  轻松: "#dff7e7",
+  感谢: "#ffe2d1",
+  被爱: "#ffd6e7",
 };
 const COMMENT_SEEDS = [
   "我听见了，这件事先放在这里。",
@@ -2392,6 +2398,16 @@ function bindEvents() {
   });
 
   $("#moodPicker").addEventListener("click", (event) => {
+    const customButton = event.target.closest("[data-custom-mood]");
+    if (customButton) {
+      const value = prompt("写一个这次树洞的心情标签", activeMood)?.trim().slice(0, 12);
+      if (!value) return;
+      activeMood = value;
+      $$("#moodPicker button").forEach((item) => item.classList.toggle("active", item === customButton));
+      customButton.textContent = `自定义：${value}`;
+      customButton.dataset.mood = value;
+      return;
+    }
     const button = event.target.closest("button[data-mood]");
     if (!button) return;
     activeMood = button.dataset.mood;

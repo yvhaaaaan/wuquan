@@ -61,8 +61,8 @@
 
         <section class="view" id="composeView">
           <form class="compose-card" id="composeForm">
-            <label class="field-label" for="diaryText">把此刻不方便说出口的话，丢进派对树洞</label>
-            <textarea id="diaryText" placeholder="可以是秘密、委屈、压力、想念，或者只是一句没人听见的话。" maxlength="1200" required></textarea>
+            <label class="field-label" for="diaryText">把此刻想说的话，丢进派对树洞</label>
+            <textarea id="diaryText" placeholder="可以是秘密、委屈、压力、想念，也可以是开心、期待、被爱，或者一句突然冒出来的话。" maxlength="1200" required></textarea>
             <div class="emoji-bar" data-emoji-target="diaryText" aria-label="插入表情"></div>
 
             <div class="mood-picker" id="moodPicker" aria-label="选择心情">
@@ -72,6 +72,13 @@
               <button type="button" data-mood="想念">想念</button>
               <button type="button" data-mood="压力">压力</button>
               <button type="button" data-mood="开心">开心</button>
+              <button type="button" data-mood="平静">平静</button>
+              <button type="button" data-mood="期待">期待</button>
+              <button type="button" data-mood="兴奋">兴奋</button>
+              <button type="button" data-mood="轻松">轻松</button>
+              <button type="button" data-mood="感谢">感谢</button>
+              <button type="button" data-mood="被爱">被爱</button>
+              <button type="button" data-custom-mood="true">自定义</button>
             </div>
             <div class="audience-picker" id="audiencePicker" aria-label="选择树洞范围">
               <button class="active" type="button" data-audience="pets">
