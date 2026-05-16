@@ -4880,6 +4880,46 @@ input {
   text-align: left;
 }
 
+.image-preview-dialog {
+  width: min(94vw, 760px);
+  max-width: 94vw;
+  max-height: 88vh;
+  border: 0;
+  border-radius: 22px;
+  padding: 10px;
+  background: rgba(18, 24, 35, 0.92);
+  overflow: visible;
+}
+
+.image-preview-dialog::backdrop {
+  background: rgba(13, 18, 28, 0.72);
+  backdrop-filter: blur(5px);
+}
+
+.image-preview-dialog img {
+  display: block;
+  max-width: 100%;
+  max-height: 82vh;
+  margin: 0 auto;
+  border-radius: 16px;
+  object-fit: contain;
+}
+
+.image-preview-close {
+  position: absolute;
+  top: -12px;
+  right: -12px;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  background: white;
+  font-size: 20px;
+  font-weight: 900;
+}
+
 .reply-dialog::backdrop {
   background: rgba(71, 52, 65, 0.3);
   backdrop-filter: blur(6px);

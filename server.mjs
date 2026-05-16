@@ -1023,6 +1023,12 @@ async function handlePublicDiaries(req, res, segments, body) {
     if (existing && existing.author?.id !== user.id) throw httpError(403, "You can only edit your own public diary.", "forbidden");
 
     const now = new Date().toISOString();
+    const incomingLikes = Array.isArray(body.likes)
+      ? body.likes.map((item) => cleanText(item, 80)).filter(Boolean).slice(0, 100)
+      : null;
+    const incomingComments = Array.isArray(body.comments)
+      ? body.comments.map(sanitizePetEcho).filter(Boolean).slice(0, 100)
+      : null;
     const post = {
       id,
       text,
@@ -1033,9 +1039,9 @@ async function handlePublicDiaries(req, res, segments, body) {
       author: { id: user.id, name: user.name, avatar: user.avatar },
       commentIdentity: normalizePublicIdentity(body.commentIdentity, user),
       safety: { serverChecked: true, checkedAt: now },
-      likes: Array.isArray(body.likes) ? body.likes.map((item) => cleanText(item, 80)).filter(Boolean).slice(0, 100) : (existing?.likes || []),
-      comments: Array.isArray(body.comments) ? body.comments.map(sanitizePetEcho).filter(Boolean).slice(0, 100) : (existing?.comments || []),
-      aiStatus: cleanText(body.aiStatus, 40) || existing?.aiStatus || "local",
+      likes: incomingLikes?.length ? incomingLikes : (existing?.likes || []),
+      comments: incomingComments?.length ? incomingComments : (existing?.comments || []),
+      aiStatus: incomingComments?.length ? (cleanText(body.aiStatus, 40) || "ai") : (existing?.aiStatus || cleanText(body.aiStatus, 40) || "local"),
       publicComments: existing?.publicComments || [],
       createdAt: cleanText(body.createdAt, 80) || now,
       updatedAt: now,
