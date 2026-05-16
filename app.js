@@ -1586,7 +1586,7 @@ function renderProfile() {
 }
 
 function renderPersonalization() {
-  const avatarNode = $("#avatarChoices");
+  const avatarNode = $("#avatarDialogChoices");
   if (avatarNode) {
     avatarNode.innerHTML = Array.from({ length: AVATAR_CHOICES }, (_, index) => `
       <button type="button" class="${userProfile.avatar?.type === "preset" && Number(userProfile.avatar.index) === index ? "active" : ""}" data-avatar-index="${index}" aria-label="选择头像 ${index + 1}">
@@ -1594,7 +1594,7 @@ function renderPersonalization() {
       </button>
     `).join("");
   }
-  const wallpaperNode = $("#wallpaperChoices");
+  const wallpaperNode = $("#wallpaperDialogChoices");
   if (wallpaperNode) {
     wallpaperNode.innerHTML = Array.from({ length: WALLPAPER_CHOICES }, (_, index) => `
       <button type="button" class="${userProfile.wallpaper?.type === "preset" && Number(userProfile.wallpaper.index) === index ? "active" : ""}" data-wallpaper-index="${index}" style='${wallpaperStyle({ type: "preset", index })}' aria-label="选择壁纸 ${index + 1}"></button>
@@ -1940,31 +1940,38 @@ function bindEvents() {
     const email = $("#authEmail").value.trim();
     const password = $("#authPassword").value;
     const name = $("#authName").value.trim();
+    const isRegister = activeAuthMode === "register";
+    if (isRegister && !name) {
+      toast("注册时请先取一个吾圈昵称");
+      return;
+    }
     button.disabled = true;
-    button.textContent = activeAuthMode === "register" ? "注册中..." : "登录中...";
+    button.textContent = isRegister ? "注册中..." : "登录中...";
     try {
-      const path = activeAuthMode === "register" ? "/api/auth/register" : "/api/auth/login";
+      const path = isRegister ? "/api/auth/register" : "/api/auth/login";
+      const body = isRegister ? { email, password, name } : { email, password };
       const data = await serverRequest(path, {
         method: "POST",
-        body: JSON.stringify({ email, password, name }),
+        body: JSON.stringify(body),
       });
       saveAuth({ token: data.token || data.accessToken || "", user: data.user || null });
       saveUserProfile({
         id: data.user?.id || data.user?.wuquanId || userProfile.id,
-        name: data.user?.name || data.user?.nickname || name || userProfile.name,
+        name: data.user?.name || data.user?.nickname || (isRegister ? name : userProfile.name),
         bio: data.user?.bio || userProfile.bio,
         avatar: data.user?.avatar || userProfile.avatar,
         wallpaper: data.user?.wallpaper || userProfile.wallpaper,
       }, false);
+      $("#authName").value = "";
       $("#authPassword").value = "";
       renderAll();
       showTab("feed");
-      toast(activeAuthMode === "register" ? "注册成功" : "登录成功");
+      toast(isRegister ? "注册成功" : "登录成功");
     } catch (error) {
-      toast(error.message || "账号接口暂时没接上");
+      toast(error.message || (isRegister ? "注册失败，请检查信息" : "登录失败，请检查邮箱和密码"));
     } finally {
       button.disabled = false;
-      button.textContent = activeAuthMode === "register" ? "注册" : "登录";
+      button.textContent = isRegister ? "注册" : "登录";
     }
   });
 
@@ -2014,11 +2021,12 @@ function bindEvents() {
 
   $("#refreshFriendMatches").addEventListener("click", fetchFriendMatches);
 
-  $("#avatarChoices").addEventListener("click", (event) => {
+  $("#avatarDialogChoices").addEventListener("click", (event) => {
     const button = event.target.closest("[data-avatar-index]");
     if (!button) return;
     saveUserProfile({ avatar: { type: "preset", index: Number(button.dataset.avatarIndex) } });
     renderAll();
+    $("#avatarDialog").close();
   });
 
   $("#profileAvatar").addEventListener("click", () => {
@@ -2027,21 +2035,22 @@ function bindEvents() {
       toast("请先登录吾圈账号");
       return;
     }
-    $("#customAvatarInput").click();
+    $("#avatarDialog").showModal();
   });
 
-  $("#wallpaperChoices").addEventListener("click", (event) => {
+  $("#closeAvatarDialog").addEventListener("click", () => $("#avatarDialog").close());
+  $("#closeWallpaperDialog").addEventListener("click", () => $("#wallpaperDialog").close());
+
+  $("#wallpaperDialogChoices").addEventListener("click", (event) => {
     const button = event.target.closest("[data-wallpaper-index]");
     if (!button) return;
     saveUserProfile({ wallpaper: { type: "preset", index: Number(button.dataset.wallpaperIndex) } });
     renderAll();
-    $("#wallpaperChoices").classList.remove("show");
-    $(".wallpaper-upload")?.classList.remove("show");
+    $("#wallpaperDialog").close();
   });
 
   $("#changeWallpaperButton").addEventListener("click", () => {
-    $("#wallpaperChoices").classList.toggle("show");
-    $(".wallpaper-upload")?.classList.toggle("show");
+    $("#wallpaperDialog").showModal();
   });
 
   $("#customAvatarInput").addEventListener("change", async (event) => {
@@ -2051,6 +2060,7 @@ function bindEvents() {
     saveUserProfile({ avatar: { type: "custom", src } });
     event.target.value = "";
     renderAll();
+    $("#avatarDialog").close();
     toast("头像已更新");
   });
 
@@ -2061,6 +2071,7 @@ function bindEvents() {
     saveUserProfile({ wallpaper: { type: "custom", src } });
     event.target.value = "";
     renderAll();
+    $("#wallpaperDialog").close();
     toast("壁纸已更新");
   });
 

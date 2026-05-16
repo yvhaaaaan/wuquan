@@ -192,7 +192,6 @@
               </label>
               <div class="account-actions">
                 <button class="soft-button" type="submit">保存资料</button>
-                <button class="soft-button" id="logoutButton" type="button">退出登录</button>
               </div>
             </form>
           </section>
@@ -239,24 +238,13 @@
                 <p class="eyebrow">个人装扮</p>
                 <h3>头像和壁纸</h3>
               </div>
-              <label class="mini-upload">
-                上传头像
-                <input id="customAvatarInput" type="file" accept="image/*" />
-              </label>
             </div>
-            <div class="avatar-choice-grid" id="avatarChoices" aria-label="选择头像"></div>
             <div class="section-head compact wallpaper-head">
               <div>
                 <p class="eyebrow">背景墙</p>
                 <h3>选择你的个人壁纸</h3>
               </div>
-              <button class="mini-upload" id="changeWallpaperButton" type="button">更换壁纸</button>
             </div>
-            <div class="wallpaper-choice-grid" id="wallpaperChoices" aria-label="选择壁纸"></div>
-            <label class="mini-upload wallpaper-upload">
-              上传壁纸
-              <input id="customWallpaperInput" type="file" accept="image/*" />
-            </label>
           </section>
           <div class="stats-row">
             <article><strong id="statPosts">0</strong><span>树洞</span></article>
@@ -310,6 +298,30 @@
         <button class="icon-button ghost" id="closeDetail" aria-label="关闭">×</button>
       </div>
       <div id="detailContent"></div>
+    </dialog>
+
+    <dialog class="avatar-dialog" id="avatarDialog">
+      <div class="dialog-head">
+        <strong>更换头像</strong>
+        <button class="icon-button ghost" id="closeAvatarDialog" aria-label="关闭">×</button>
+      </div>
+      <div class="avatar-choice-grid dialog-avatar-grid" id="avatarDialogChoices" aria-label="选择头像"></div>
+      <label class="mini-upload avatar-upload-action">
+        从相册选择
+        <input id="customAvatarInput" type="file" accept="image/*" />
+      </label>
+    </dialog>
+
+    <dialog class="wallpaper-dialog" id="wallpaperDialog">
+      <div class="dialog-head">
+        <strong>更换壁纸</strong>
+        <button class="icon-button ghost" id="closeWallpaperDialog" aria-label="关闭">×</button>
+      </div>
+      <div class="wallpaper-choice-grid dialog-wallpaper-grid" id="wallpaperDialogChoices" aria-label="选择壁纸"></div>
+      <label class="mini-upload avatar-upload-action">
+        从相册选择
+        <input id="customWallpaperInput" type="file" accept="image/*" />
+      </label>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

@@ -517,7 +517,10 @@ function publicPostForResponse(post) {
 }
 
 function resolveAiUrl() {
-  if (process.env.AI_API_URL) return process.env.AI_API_URL;
+  if (process.env.AI_API_URL) {
+    const url = process.env.AI_API_URL.replace(/\/+$/u, "");
+    return url.endsWith("/v1") ? `${url}/chat/completions` : url;
+  }
   if (process.env.AI_BASE_URL) {
     const base = process.env.AI_BASE_URL.replace(/\/+$/u, "");
     return base.endsWith("/v1") ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
