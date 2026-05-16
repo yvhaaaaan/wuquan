@@ -837,12 +837,36 @@ async function blockHumanFriend(friendId) {
 }
 
 function assistantTextFromResponse(data) {
-  const message = data?.choices?.[0]?.message;
-  if (!message) return "";
-  const content = Array.isArray(message.content)
-    ? message.content.map((part) => part?.text || "").join("")
-    : (message.content || "");
-  return (content || message.reasoning_content || "").trim();
+  const textFromPart = (part) => {
+    if (!part) return "";
+    if (Array.isArray(part)) return part.map(textFromPart).join("");
+    if (typeof part === "string") return part;
+    if (typeof part.text === "string") return part.text;
+    if (typeof part.content === "string") return part.content;
+    if (typeof part.output_text === "string") return part.output_text;
+    if (Array.isArray(part.text)) return part.text.map(textFromPart).join("");
+    if (Array.isArray(part.content)) return part.content.map(textFromPart).join("");
+    return "";
+  };
+  const textFromMessage = (message) => {
+    if (!message) return "";
+    if (typeof message === "string") return message;
+    return [
+      textFromPart(message.content),
+      textFromPart(message.text),
+      textFromPart(message.output_text),
+      textFromPart(message.reasoning_content),
+    ].find(Boolean) || "";
+  };
+  return (
+    textFromMessage(data?.choices?.[0]?.message) ||
+    textFromMessage(data?.choices?.[0]?.delta) ||
+    textFromMessage(data?.choices?.[0]?.text) ||
+    textFromPart(data?.output_text) ||
+    textFromPart(data?.message) ||
+    textFromPart(data?.content) ||
+    textFromPart(data?.output)
+  ).trim();
 }
 
 function readFileAsDataUrl(file) {
@@ -1051,7 +1075,7 @@ async function aiCommentReplyToUser(diary, comment, userText) {
       temperature: 0.68,
       max_tokens: 220,
     });
-    return (data.choices?.[0]?.message?.content || "").trim() || `${pet.name}：我明白你的意思了。你刚才这么回，我会按你的话接着听。`;
+    return assistantTextFromResponse(data) || `${pet.name}：我明白你的意思了。你刚才这么回，我会按你的话接着听。`;
   } catch (error) {
     console.warn("Comment reply fallback:", error);
     return `${pet.name}：我明白你的意思了。你刚才这么回，我会按你的话接着听。`;
