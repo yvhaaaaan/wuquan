@@ -206,6 +206,7 @@ const PET_EMOTIONS = [
 ];
 
 let diaries = migrateDiaries();
+let publicDiaries = [];
 let settings = normalizeSettings(loadJson(SETTINGS_KEY, {}));
 let chatMessages = loadJson(CHAT_KEY, {});
 let authState = normalizeAuth(loadJson(AUTH_KEY, {}));
@@ -604,6 +605,19 @@ function saveAuth(nextAuth) {
   saveJson(AUTH_KEY, authState);
 }
 
+function clearAccountScopedData() {
+  diaries = [];
+  publicDiaries = [];
+  chatMessages = {};
+  humanFriends = [];
+  friendMatches = [];
+  safetyState = normalizeSafety({});
+  expandedPosts.clear();
+  activeChatPetId = "";
+  activeCalendarDay = "";
+  searchKeyword = "";
+}
+
 function saveUserProfile(nextProfile, sync = true) {
   userProfile = normalizeUserProfile({ ...userProfile, ...nextProfile });
   saveJson(USER_PROFILE_KEY, userProfile);
@@ -644,11 +658,14 @@ async function loadUserStateFromServer() {
   try {
     const data = await serverRequest("/api/user/state");
     const state = data.state || {};
-    if (Array.isArray(state.diaries) && state.diaries.length) {
-      const localById = new Map(diaries.map((item) => [item.id, item]));
-      const serverDiaries = normalizeDiaries(state.diaries);
-      serverDiaries.forEach((item) => localById.set(item.id, item));
-      diaries = [...localById.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    if (Array.isArray(state.diaries)) {
+      diaries = normalizeDiaries(state.diaries)
+        .filter((item) => !item.ownerId || item.ownerId === userProfile.id)
+        .map((item) => ({ ...item, ownerId: userProfile.id }))
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      saveDiaries(false);
+    } else {
+      diaries = [];
       saveDiaries(false);
     }
     if (state.theme) {
@@ -741,8 +758,12 @@ async function loadProfileFromServer() {
 }
 
 function mergeOwnPublicDiaries(posts = []) {
+  publicDiaries = normalizeDiaries(posts.map((post) => ({ ...post, publicStatus: "synced" })));
   const ownPosts = posts.filter((post) => post?.author?.id === userProfile.id);
-  if (!ownPosts.length) return;
+  if (!ownPosts.length) {
+    renderTimeline();
+    return;
+  }
   const ownIds = new Set(ownPosts.map((post) => post.id));
   const mergedPosts = ownPosts.map((post) => {
     const existing = diaries.find((item) => item.id === post.id) || {};
@@ -754,6 +775,7 @@ function mergeOwnPublicDiaries(posts = []) {
       likes: existing.likes || [],
       comments: existing.comments || [],
       aiStatus: existing.aiStatus || "ai",
+      ownerId: userProfile.id,
     };
   });
   diaries = normalizeDiaries([
@@ -1298,8 +1320,12 @@ function getPublicComments(diary) {
   return Array.isArray(diary.publicComments) ? diary.publicComments : [];
 }
 
+function findDiaryById(id) {
+  return diaries.find((item) => item.id === id) || publicDiaries.find((item) => item.id === id);
+}
+
 async function submitPublicComment(postId, text) {
-  const diary = diaries.find((item) => item.id === postId);
+  const diary = findDiaryById(postId);
   if (!diary || diary.audience !== "public") return;
   const issue = publicSafetyIssue(text);
   if (issue) {
@@ -1313,6 +1339,8 @@ async function submitPublicComment(postId, text) {
     createdAt: new Date().toISOString(),
   };
   diary.publicComments = [...getPublicComments(diary), comment];
+  const localDiary = diaries.find((item) => item.id === postId);
+  if (localDiary && localDiary !== diary) localDiary.publicComments = diary.publicComments;
   saveDiaries();
   renderAll();
   if ($("#detailDialog")?.open && $("#detailDialog").dataset.postId === postId) showDetail(postId);
@@ -1327,9 +1355,11 @@ async function submitPublicComment(postId, text) {
 }
 
 async function deletePublicComment(postId, commentId) {
-  const diary = diaries.find((item) => item.id === postId);
+  const diary = findDiaryById(postId);
   if (!diary) return;
   diary.publicComments = getPublicComments(diary).filter((comment) => comment.id !== commentId);
+  const localDiary = diaries.find((item) => item.id === postId);
+  if (localDiary && localDiary !== diary) localDiary.publicComments = diary.publicComments;
   saveDiaries();
   renderAll();
   if ($("#detailDialog")?.open && $("#detailDialog").dataset.postId === postId) showDetail(postId);
@@ -1375,6 +1405,7 @@ function createDiary(text, images, mood, audience = "pets") {
     text,
     images,
     mood,
+    ownerId: userProfile.id,
     audience,
     publicStatus: audience === "public" ? "syncing" : "",
     favorite: false,
@@ -1525,10 +1556,14 @@ async function regenerateDiary(id) {
 }
 
 function filteredDiaries() {
-  return diaries.filter((item) => {
+  const source = activeFeedFilter === "public"
+    ? publicDiaries
+    : diaries.filter((item) => !item.ownerId || item.ownerId === userProfile.id);
+  return source.filter((item) => {
     const keywordMatched = !searchKeyword || item.text.toLowerCase().includes(searchKeyword.toLowerCase());
     const dayMatched = !activeCalendarDay || dateKey(item.createdAt) === activeCalendarDay;
     const filterMatched =
+      activeFeedFilter === "public" ||
       activeFeedFilter === "all" ||
       (activeFeedFilter === "text" && !item.images.length) ||
       (activeFeedFilter === "image" && item.images.length) ||
@@ -1541,7 +1576,10 @@ function filteredDiaries() {
 function renderTimeline() {
   const timeline = $("#timeline");
   const visible = filteredDiaries();
-  $("#coverStats").textContent = activeCalendarDay ? `${visible.length} 个当天树洞` : `${diaries.length} 个树洞`;
+  const sourceCount = activeFeedFilter === "public"
+    ? publicDiaries.length
+    : diaries.filter((item) => !item.ownerId || item.ownerId === userProfile.id).length;
+  $("#coverStats").textContent = activeCalendarDay ? `${visible.length} 个当天树洞` : `${sourceCount} 个树洞`;
   $("#coverPets").innerHTML = sample(PETS, 5).map((pet) => petAvatar(pet, "tiny")).join("");
   $("#dailyQuote").innerHTML = `<span>今日一句</span><strong>${escapeHtml(dailyQuote())}</strong>`;
 
@@ -1549,8 +1587,8 @@ function renderTimeline() {
     timeline.innerHTML = `
       <div class="empty-state">
         <div>🐰</div>
-        <strong>${diaries.length ? "没有匹配的树洞" : "还没有树洞"}</strong>
-        <p>${diaries.length ? "换个关键词或筛选条件试试看。" : "把秘密、委屈或小心事投进来，小动物们会来抱抱你。"}</p>
+        <strong>${sourceCount ? "没有匹配的树洞" : (activeFeedFilter === "public" ? "公开树洞还没有内容" : "还没有树洞")}</strong>
+        <p>${sourceCount ? "换个关键词或筛选条件试试看。" : (activeFeedFilter === "public" ? "发布到公开树洞后，别的账号也能在这里看到。" : "把秘密、委屈或小心事投进来，小动物们会来抱抱你。")}</p>
       </div>`;
     return;
   }
@@ -1565,6 +1603,7 @@ function renderTimeline() {
     const statusText = item.aiStatus === "loading" ? "回声生成中" : item.aiStatus === "ai" ? "AI 回声" : "本地回声";
     const publicLabel = item.publicStatus === "withdrawn" ? "已撤回公开" : item.publicStatus === "synced" ? "公开树洞" : "公开待同步";
     const audienceText = item.audience === "public" ? publicLabel : "动物朋友";
+    const isMine = item.ownerId === userProfile.id || item.author?.id === userProfile.id || (!item.ownerId && !item.author);
     const isExpanded = expandedPosts.has(item.id);
     const shouldClampText = item.text.length > 90;
     const displayText = shouldClampText && !isExpanded ? `${item.text.slice(0, 90)}...` : item.text;
@@ -1575,7 +1614,7 @@ function renderTimeline() {
           ${userAvatarMarkup("my-avatar")}
           <div class="post-body">
             <div class="post-meta">
-              <strong>我的树洞</strong>
+              <strong>${isMine ? "我的树洞" : escapeHtml(item.author?.name || item.commentIdentity?.displayName || "公开树洞")}</strong>
               <span>${formatTime(item.createdAt)}</span>
             </div>
             <div class="mood-chip">${escapeHtml(item.mood || "普通")} · ${audienceText} · ${statusText}</div>
@@ -1603,12 +1642,12 @@ function renderTimeline() {
               ${hiddenCommentCount ? `<button class="more-comments" type="button" data-action="detail">查看全部 ${comments.length} 条回声</button>` : ""}
             </div>
             <div class="post-actions">
-              <button type="button" data-action="favorite">${item.favorite ? "已收藏" : "收藏"}</button>
+              ${isMine ? `<button type="button" data-action="favorite">${item.favorite ? "已收藏" : "收藏"}</button>` : ""}
               <button type="button" data-action="detail">详情</button>
-              <button type="button" data-action="regenerate">重抽回声</button>
-              ${item.audience === "public" && item.publicStatus !== "withdrawn" ? `<button type="button" data-action="unpublish">撤回公开</button>` : ""}
-              ${item.audience === "public" ? `<button type="button" data-action="report">举报</button>` : ""}
-              <button type="button" data-action="delete">删除</button>
+              ${isMine ? `<button type="button" data-action="regenerate">重抽回声</button>` : ""}
+              ${isMine && item.audience === "public" && item.publicStatus !== "withdrawn" ? `<button type="button" data-action="unpublish">撤回公开</button>` : ""}
+              ${!isMine && item.audience === "public" ? `<button type="button" data-action="report">举报</button>` : ""}
+              ${isMine ? `<button type="button" data-action="delete">删除</button>` : ""}
             </div>
           </div>
         </div>
@@ -1958,8 +1997,9 @@ window.__androidBack = () => {
 };
 
 function showDetail(id) {
-  const item = diaries.find((diary) => diary.id === id);
+  const item = findDiaryById(id);
   if (!item) return;
+  const isMine = item.ownerId === userProfile.id || item.author?.id === userProfile.id || (!item.ownerId && !item.author);
   $("#detailDialog").dataset.postId = item.id;
   const comments = item.comments.map((comment) => ({ ...comment, pet: getPet(comment.petId) })).filter((comment) => comment.pet);
   const likes = item.likes.map(getPet).filter(Boolean);
@@ -1969,7 +2009,7 @@ function showDetail(id) {
     ${item.images.length ? `<div class="photo-grid detail">${item.images.map((src) => `<img src="${src}" alt="日记图片" />`).join("")}</div>` : ""}
     <div class="detail-actions">
       <button type="button" data-detail-action="copy" data-id="${item.id}">复制文案</button>
-      <button type="button" data-detail-action="regenerate" data-id="${item.id}">重新生成回声</button>
+      ${isMine ? `<button type="button" data-detail-action="regenerate" data-id="${item.id}">重新生成回声</button>` : ""}
     </div>
     <div class="detail-section">
       <strong>给你抱抱的小伙伴</strong>
@@ -2189,6 +2229,7 @@ function bindEvents() {
         method: "POST",
         body: JSON.stringify(body),
       });
+      clearAccountScopedData();
       saveAuth({ token: data.token || data.accessToken || "", user: data.user || null });
       saveUserProfile({
         id: data.user?.id || data.user?.wuquanId || userProfile.id,
@@ -2223,7 +2264,7 @@ function bindEvents() {
 
   $("#logoutButton").addEventListener("click", () => {
     saveAuth({});
-    chatMessages = {};
+    clearAccountScopedData();
     renderAll();
     showTab("profile");
     toast("已退出登录");
@@ -2373,6 +2414,7 @@ function bindEvents() {
     activeFeedFilter = button.dataset.filter;
     activeCalendarDay = "";
     $$("#feedFilters button").forEach((item) => item.classList.toggle("active", item === button));
+    if (activeFeedFilter === "public") loadOwnPublicDiariesFromServer();
     renderTimeline();
   });
 
