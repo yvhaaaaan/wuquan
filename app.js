@@ -1443,13 +1443,15 @@ function closeChatConversation() {
 function renderChatList() {
   const panel = $("#chatPanel");
   if (!panel) return;
+  $("#chatView")?.classList.add("chat-list-mode");
+  $("#chatView")?.classList.remove("chat-thread-mode");
+  panel.classList.add("chat-list-panel");
   $("#chatPetName").textContent = "会话";
   $("#chatBackButton").hidden = true;
   $("#chatForm").hidden = true;
   $("#chatImagePreview").hidden = true;
   $("#chatEmojiBar").classList.remove("show");
   $("#chatPetStrip").innerHTML = "";
-  panel.classList.add("chat-list-panel");
   panel.innerHTML = PETS.map((pet) => {
     const score = petCloseness(pet.id);
     return `
@@ -1479,12 +1481,14 @@ function renderChat() {
   const pet = getPet(activeChatPetId) || PETS[0];
   const panel = $("#chatPanel");
   if (!panel) return;
+  $("#chatView")?.classList.add("chat-thread-mode");
+  $("#chatView")?.classList.remove("chat-list-mode");
+  panel.classList.remove("chat-list-panel");
   const score = petCloseness(pet.id);
   $("#chatPetName").textContent = `${pet.name} · ${closenessLabel(score)}`;
   $("#chatBackButton").hidden = false;
   $("#chatForm").hidden = false;
   $("#chatImagePreview").hidden = false;
-  panel.classList.remove("chat-list-panel");
   const messages = getChatMessages(pet.id);
   panel.innerHTML = messages.map((message) => `
     <div class="chat-message ${message.role} ${message.typing ? "typing" : ""}" data-message-id="${message.id}">
@@ -1690,6 +1694,7 @@ function renderAll() {
 function showTab(tab) {
   $$(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${tab}View`));
+  if (tab === "chat") renderChat();
 }
 
 window.__androidBack = () => {
@@ -2202,7 +2207,7 @@ function bindEvents() {
 
   $("#chatPanel").addEventListener("click", (event) => {
     const chat = event.target.closest("[data-open-chat]");
-    if (chat && !activeChatPetId) {
+    if (chat) {
       openChatWithPet(chat.dataset.openChat);
       return;
     }

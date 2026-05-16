@@ -6511,6 +6511,60 @@ textarea,
 #chatView.active,
 .native-app #chatView.active {
   height: 100%;
+  min-height: 0;
+  gap: 10px;
+  overflow: hidden;
+}
+
+#chatView .section-head {
+  flex: 0 0 auto;
+}
+
+#chatPetName,
+#chatView .chat-pet-strip,
+#chatView .chat-image-preview,
+#chatView .emoji-bar {
+  flex: 0 0 auto;
+}
+
+#chatView.chat-list-mode .chat-form,
+#chatView.chat-list-mode .chat-back-button,
+#chatView.chat-list-mode .chat-image-preview,
+#chatView.chat-list-mode .emoji-bar {
+  display: none !important;
+}
+
+#chatView.chat-list-mode #chatPetName {
+  display: none;
+}
+
+#chatView.chat-list-mode .chat-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  margin-top: 0;
+}
+
+#chatView.chat-thread-mode .chat-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+#chatView .chat-panel {
+  overscroll-behavior: contain;
+}
+
+#chatView .chat-form {
+  position: relative;
+  z-index: 2;
+  margin-top: 0;
+}
+
+#chatBackButton[hidden],
+#chatForm[hidden],
+#chatImagePreview[hidden] {
+  display: none !important;
 }
 
 @media (max-width: 480px) {
