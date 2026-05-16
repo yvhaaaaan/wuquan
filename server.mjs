@@ -400,6 +400,9 @@ function sanitizeUserState(value) {
     theme: cleanText(raw.theme, 40) || "pink",
     safetyState: boundedObject(raw.safetyState, 512 * 1024) || {},
     friendMatches: Array.isArray(raw.friendMatches) ? raw.friendMatches.slice(0, 60) : [],
+    favoritePublicIds: Array.isArray(raw.favoritePublicIds)
+      ? [...new Set(raw.favoritePublicIds.map((item) => cleanText(item, 120)).filter(Boolean))].slice(0, 500)
+      : [],
     updatedAt: new Date().toISOString(),
   };
 }

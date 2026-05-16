@@ -214,6 +214,7 @@ let userProfile = normalizeUserProfile(loadJson(USER_PROFILE_KEY, {}));
 let humanFriends = normalizeHumanFriends(loadJson(FRIENDS_KEY, []));
 let friendMatches = normalizeHumanFriends(loadJson(FRIEND_MATCHES_KEY, []));
 let safetyState = normalizeSafety(loadJson(SAFETY_KEY, {}));
+let favoritePublicIds = [];
 let draftImages = [];
 let chatDraftImages = [];
 let activePetCategory = "全部";
@@ -612,6 +613,7 @@ function clearAccountScopedData() {
   humanFriends = [];
   friendMatches = [];
   safetyState = normalizeSafety({});
+  favoritePublicIds = [];
   expandedPosts.clear();
   activeChatPetId = "";
   activeCalendarDay = "";
@@ -630,6 +632,7 @@ function currentUserState() {
     theme: loadJson(THEME_KEY, "pink"),
     safetyState,
     friendMatches,
+    favoritePublicIds,
   };
 }
 
@@ -680,6 +683,7 @@ async function loadUserStateFromServer() {
       friendMatches = normalizeHumanFriends(state.friendMatches);
       saveFriendMatches(false);
     }
+    favoritePublicIds = Array.isArray(state.favoritePublicIds) ? state.favoritePublicIds : [];
     await syncUserStateToServer();
   } catch (error) {
     console.warn("User state load failed:", error);
@@ -758,7 +762,11 @@ async function loadProfileFromServer() {
 }
 
 function mergeOwnPublicDiaries(posts = []) {
-  publicDiaries = normalizeDiaries(posts.map((post) => ({ ...post, publicStatus: "synced" })));
+  publicDiaries = normalizeDiaries(posts.map((post) => ({
+    ...post,
+    publicStatus: "synced",
+    favorite: favoritePublicIds.includes(post.id),
+  })));
   const ownPosts = posts.filter((post) => post?.author?.id === userProfile.id);
   if (!ownPosts.length) {
     renderTimeline();
@@ -840,6 +848,11 @@ function wallpaperStyle(wallpaper = userProfile.wallpaper) {
 
 function userAvatarMarkup(size = "") {
   return `<span class="user-avatar ${size}" style='${avatarStyle(userProfile.avatar)}'></span>`;
+}
+
+function postAvatarMarkup(item, isMine) {
+  const avatar = isMine ? userProfile.avatar : (item.author?.avatar || item.commentIdentity?.avatar || { type: "preset", index: 0 });
+  return `<span class="user-avatar my-avatar" style='${avatarStyle(avatar)}'></span>`;
 }
 
 function publicIdentityName() {
@@ -1458,10 +1471,19 @@ function deleteDiary(id) {
 }
 
 function toggleFavorite(id) {
-  const diary = diaries.find((item) => item.id === id);
+  const diary = findDiaryById(id);
   if (!diary) return;
-  diary.favorite = !diary.favorite;
-  saveDiaries();
+  const isMine = diary.ownerId === userProfile.id || diary.author?.id === userProfile.id || (!diary.ownerId && !diary.author);
+  if (isMine) {
+    diary.favorite = !diary.favorite;
+    saveDiaries();
+  } else {
+    favoritePublicIds = favoritePublicIds.includes(id)
+      ? favoritePublicIds.filter((item) => item !== id)
+      : [...favoritePublicIds, id];
+    diary.favorite = favoritePublicIds.includes(id);
+    scheduleUserStateSync();
+  }
   renderAll();
   toast(diary.favorite ? "已收藏这个树洞" : "已取消收藏");
 }
@@ -1556,14 +1578,21 @@ async function regenerateDiary(id) {
 }
 
 function filteredDiaries() {
+  const myDiaries = diaries.filter((item) => !item.ownerId || item.ownerId === userProfile.id);
+  const publicById = new Map(publicDiaries.map((item) => [item.id, item]));
+  myDiaries.filter((item) => item.audience === "public" && item.publicStatus !== "withdrawn").forEach((item) => {
+    if (!publicById.has(item.id)) publicById.set(item.id, item);
+  });
   const source = activeFeedFilter === "public"
-    ? publicDiaries
-    : diaries.filter((item) => !item.ownerId || item.ownerId === userProfile.id);
+    ? [...publicById.values()]
+    : activeFeedFilter === "mine"
+      ? myDiaries
+      : [...new Map([...myDiaries, ...publicById.values()].map((item) => [item.id, item])).values()];
   return source.filter((item) => {
     const keywordMatched = !searchKeyword || item.text.toLowerCase().includes(searchKeyword.toLowerCase());
     const dayMatched = !activeCalendarDay || dateKey(item.createdAt) === activeCalendarDay;
     const filterMatched =
-      activeFeedFilter === "public" ||
+      activeFeedFilter === "mine" ||
       activeFeedFilter === "all" ||
       (activeFeedFilter === "text" && !item.images.length) ||
       (activeFeedFilter === "image" && item.images.length) ||
@@ -1576,9 +1605,10 @@ function filteredDiaries() {
 function renderTimeline() {
   const timeline = $("#timeline");
   const visible = filteredDiaries();
-  const sourceCount = activeFeedFilter === "public"
-    ? publicDiaries.length
-    : diaries.filter((item) => !item.ownerId || item.ownerId === userProfile.id).length;
+  const myCount = diaries.filter((item) => !item.ownerId || item.ownerId === userProfile.id).length;
+  const sourceCount = activeFeedFilter === "mine"
+      ? myCount
+      : filteredDiaries().length;
   $("#coverStats").textContent = activeCalendarDay ? `${visible.length} 个当天树洞` : `${sourceCount} 个树洞`;
   $("#coverPets").innerHTML = sample(PETS, 5).map((pet) => petAvatar(pet, "tiny")).join("");
   $("#dailyQuote").innerHTML = `<span>今日一句</span><strong>${escapeHtml(dailyQuote())}</strong>`;
@@ -1587,8 +1617,8 @@ function renderTimeline() {
     timeline.innerHTML = `
       <div class="empty-state">
         <div>🐰</div>
-        <strong>${sourceCount ? "没有匹配的树洞" : (activeFeedFilter === "public" ? "公开树洞还没有内容" : "还没有树洞")}</strong>
-        <p>${sourceCount ? "换个关键词或筛选条件试试看。" : (activeFeedFilter === "public" ? "发布到公开树洞后，别的账号也能在这里看到。" : "把秘密、委屈或小心事投进来，小动物们会来抱抱你。")}</p>
+        <strong>${sourceCount ? "没有匹配的树洞" : "还没有树洞"}</strong>
+        <p>${sourceCount ? "换个关键词或筛选条件试试看。" : "把秘密、委屈或小心事投进来，小动物们会来抱抱你。"}</p>
       </div>`;
     return;
   }
@@ -1611,7 +1641,7 @@ function renderTimeline() {
     return `
       <article class="post-card ${item.favorite ? "favorite" : ""}" data-id="${item.id}">
         <div class="post-main">
-          ${userAvatarMarkup("my-avatar")}
+          ${postAvatarMarkup(item, isMine)}
           <div class="post-body">
             <div class="post-meta">
               <strong>${isMine ? "我的树洞" : escapeHtml(item.author?.name || item.commentIdentity?.displayName || "公开树洞")}</strong>
@@ -1642,7 +1672,7 @@ function renderTimeline() {
               ${hiddenCommentCount ? `<button class="more-comments" type="button" data-action="detail">查看全部 ${comments.length} 条回声</button>` : ""}
             </div>
             <div class="post-actions">
-              ${isMine ? `<button type="button" data-action="favorite">${item.favorite ? "已收藏" : "收藏"}</button>` : ""}
+              <button type="button" data-action="favorite">${item.favorite ? "已收藏" : "收藏"}</button>
               <button type="button" data-action="detail">详情</button>
               ${isMine ? `<button type="button" data-action="regenerate">重抽回声</button>` : ""}
               ${isMine && item.audience === "public" && item.publicStatus !== "withdrawn" ? `<button type="button" data-action="unpublish">撤回公开</button>` : ""}
@@ -2414,7 +2444,7 @@ function bindEvents() {
     activeFeedFilter = button.dataset.filter;
     activeCalendarDay = "";
     $$("#feedFilters button").forEach((item) => item.classList.toggle("active", item === button));
-    if (activeFeedFilter === "public") loadOwnPublicDiariesFromServer();
+    if (activeFeedFilter === "all") loadOwnPublicDiariesFromServer();
     renderTimeline();
   });
 
