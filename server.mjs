@@ -61,6 +61,7 @@ function createEmptyDb() {
     reports: [],
     blocks: [],
     petChats: {},
+    userStates: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -79,6 +80,7 @@ function normalizeDb(value) {
     reports: Array.isArray(raw.reports) ? raw.reports : [],
     blocks: Array.isArray(raw.blocks) ? raw.blocks : [],
     petChats: isPlainObject(raw.petChats) ? raw.petChats : {},
+    userStates: isPlainObject(raw.userStates) ? raw.userStates : {},
   };
 }
 
@@ -391,6 +393,17 @@ function sanitizePetChats(value) {
   ]).filter(([petId]) => petId));
 }
 
+function sanitizeUserState(value) {
+  const raw = isPlainObject(value) ? value : {};
+  return {
+    diaries: Array.isArray(raw.diaries) ? raw.diaries.slice(0, 500) : [],
+    theme: cleanText(raw.theme, 40) || "pink",
+    safetyState: boundedObject(raw.safetyState, 512 * 1024) || {},
+    friendMatches: Array.isArray(raw.friendMatches) ? raw.friendMatches.slice(0, 60) : [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 function friendSummary(user, moodEntry = null) {
   return {
     id: user.id,
@@ -689,15 +702,28 @@ async function handleAuth(req, res, segments, body) {
 }
 
 async function handleUser(req, res, segments, body) {
-  if (segments[2] !== "me") return false;
+  if (segments[2] !== "me" && segments[2] !== "state") return false;
   const user = authenticate(req);
 
-  if (req.method === "GET") {
+  if (segments[2] === "state" && req.method === "GET") {
+    db.userStates[user.id] = sanitizeUserState(db.userStates[user.id] || {});
+    sendJson(res, 200, { state: db.userStates[user.id] });
+    return true;
+  }
+
+  if (segments[2] === "state" && req.method === "PUT") {
+    db.userStates[user.id] = sanitizeUserState(body.state || body);
+    await persistDb();
+    sendJson(res, 200, { state: db.userStates[user.id] });
+    return true;
+  }
+
+  if (segments[2] === "me" && req.method === "GET") {
     sendJson(res, 200, { user: publicUser(user) });
     return true;
   }
 
-  if (req.method === "PATCH") {
+  if (segments[2] === "me" && req.method === "PATCH") {
     const profile = isPlainObject(body.profile) ? body.profile : body;
     Object.assign(user, profilePatchFrom(profile), { updatedAt: new Date().toISOString() });
     if (user.todayMood && user.todayMoodDate) upsertFriendMood(user, user.todayMood, user.todayMoodDate, null);

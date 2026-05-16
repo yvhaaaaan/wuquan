@@ -1,4 +1,4 @@
-const PETS = [
+﻿const PETS = [
   ["墨镜鳄鱼", "鳄龙鲨鱼", "🐊", "酷酷的外表下面很稳，适合把慌张慢慢压住"],
   ["蓝绿恐龙", "鳄龙鲨鱼", "🦖", "反应大但心很软，擅长把坏心情讲轻一点"],
   ["奖牌柴犬", "狗狗伙伴", "🐶", "认真又可靠，最会把小努力看得很珍贵"],
@@ -102,10 +102,12 @@ const FRIENDS_KEY = "wuquan_human_friends_v1";
 const FRIEND_MATCHES_KEY = "wuquan_friend_matches_v1";
 const SAFETY_KEY = "wuquan_public_safety_v1";
 const DEFAULT_SETTINGS = {
-  serverUrl: "https://wuquan.art",
+  serverUrl: "https://wuquan.cc.cd",
   apiModel: "mimo-v2-omni",
 };
 const OLD_DEFAULT_API_URLS = new Set([
+  "https://wuquan.art",
+  "http://wuquan.art",
   "https://api.deepseek.com/chat/completions",
   "https://token-plan-cn.xiaomimimo.com/v1",
   "https://token-plan-cn.xiaomimimo.com/v1/chat/completions",
@@ -215,6 +217,7 @@ let activeChatPetId = "";
 let activeCalendarDay = "";
 let searchKeyword = "";
 const expandedPosts = new Set();
+let stateSyncTimer = 0;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -257,6 +260,11 @@ function loadJson(key, fallback) {
 
 function saveJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function saveDiaries(sync = true) {
+  saveJson(STORAGE_KEY, diaries);
+  if (sync) scheduleUserStateSync();
 }
 
 function normalizeServerUrl(url = DEFAULT_SETTINGS.serverUrl) {
@@ -337,6 +345,7 @@ function normalizeSafety(value) {
 
 function saveSafety() {
   saveJson(SAFETY_KEY, safetyState);
+  scheduleUserStateSync();
 }
 
 function migrateDiaries() {
@@ -594,6 +603,65 @@ function saveUserProfile(nextProfile, sync = true) {
   if (sync && authState.token) syncProfileToServer();
 }
 
+function currentUserState() {
+  return {
+    diaries,
+    theme: loadJson(THEME_KEY, "pink"),
+    safetyState,
+    friendMatches,
+  };
+}
+
+async function syncUserStateToServer() {
+  if (!authState.token) return;
+  try {
+    await serverRequest("/api/user/state", {
+      method: "PUT",
+      body: JSON.stringify({ state: currentUserState() }),
+    });
+  } catch (error) {
+    console.warn("User state sync failed:", error);
+  }
+}
+
+function scheduleUserStateSync() {
+  if (!authState.token) return;
+  clearTimeout(stateSyncTimer);
+  stateSyncTimer = setTimeout(() => {
+    syncUserStateToServer();
+  }, 450);
+}
+
+async function loadUserStateFromServer() {
+  if (!authState.token) return;
+  try {
+    const data = await serverRequest("/api/user/state");
+    const state = data.state || {};
+    if (Array.isArray(state.diaries) && state.diaries.length) {
+      const localById = new Map(diaries.map((item) => [item.id, item]));
+      const serverDiaries = normalizeDiaries(state.diaries);
+      serverDiaries.forEach((item) => localById.set(item.id, item));
+      diaries = [...localById.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+      saveDiaries(false);
+    }
+    if (state.theme) {
+      saveJson(THEME_KEY, state.theme);
+      setTheme(state.theme, false);
+    }
+    if (state.safetyState) {
+      safetyState = normalizeSafety(state.safetyState);
+      saveJson(SAFETY_KEY, safetyState);
+    }
+    if (Array.isArray(state.friendMatches)) {
+      friendMatches = normalizeHumanFriends(state.friendMatches);
+      saveFriendMatches(false);
+    }
+    await syncUserStateToServer();
+  } catch (error) {
+    console.warn("User state load failed:", error);
+  }
+}
+
 function mergeChatStores(serverChats = {}, localChats = {}) {
   const merged = { ...(serverChats || {}) };
   Object.entries(localChats || {}).forEach(([petId, messages]) => {
@@ -637,6 +705,72 @@ async function syncProfileToServer() {
   } catch (error) {
     console.warn("Profile sync failed:", error);
   }
+}
+
+async function loadProfileFromServer() {
+  if (!authState.token) return;
+  try {
+    const data = await serverRequest("/api/user/me");
+    if (data.user) saveUserProfile(data.user, false);
+  } catch (error) {
+    console.warn("Profile load failed:", error);
+  }
+}
+
+function mergeOwnPublicDiaries(posts = []) {
+  const ownPosts = posts.filter((post) => post?.author?.id === userProfile.id);
+  if (!ownPosts.length) return;
+  const ownIds = new Set(ownPosts.map((post) => post.id));
+  const mergedPosts = ownPosts.map((post) => {
+    const existing = diaries.find((item) => item.id === post.id) || {};
+    return {
+      ...existing,
+      ...post,
+      audience: "public",
+      publicStatus: "synced",
+      likes: existing.likes || [],
+      comments: existing.comments || [],
+      aiStatus: existing.aiStatus || "ai",
+    };
+  });
+  diaries = normalizeDiaries([
+    ...mergedPosts,
+    ...diaries.filter((item) => !(item.audience === "public" && ownIds.has(item.id))),
+  ]).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  saveDiaries();
+}
+
+async function loadOwnPublicDiariesFromServer() {
+  if (!authState.token) return;
+  try {
+    const data = await serverRequest("/api/diaries/public");
+    mergeOwnPublicDiaries(data.posts || data.diaries || []);
+  } catch (error) {
+    console.warn("Public diary load failed:", error);
+  }
+}
+
+async function loadHumanFriendsFromServer() {
+  if (!authState.token) return;
+  try {
+    const data = await serverRequest("/api/friends");
+    humanFriends = normalizeHumanFriends(data.friends || []);
+    saveHumanFriends();
+  } catch (error) {
+    console.warn("Friend load failed:", error);
+  }
+}
+
+async function loadAccountDataFromServer() {
+  if (!authState.token) return;
+  await loadProfileFromServer();
+  await loadUserStateFromServer();
+  await Promise.all([
+    loadChatMessagesFromServer(),
+    loadOwnPublicDiariesFromServer(),
+    loadHumanFriendsFromServer(),
+  ]);
+  if (todayMoodIsFresh()) await fetchFriendMatches();
 }
 
 function avatarStyle(avatar = userProfile.avatar) {
@@ -753,12 +887,14 @@ function todayMoodIsFresh() {
   return userProfile.todayMood && userProfile.todayMoodDate === dateKey();
 }
 
-function saveHumanFriends() {
+function saveHumanFriends(sync = true) {
   saveJson(FRIENDS_KEY, humanFriends);
+  if (sync) scheduleUserStateSync();
 }
 
-function saveFriendMatches() {
+function saveFriendMatches(sync = true) {
   saveJson(FRIEND_MATCHES_KEY, friendMatches);
+  if (sync) scheduleUserStateSync();
 }
 
 async function setTodayMood(mood) {
@@ -928,12 +1064,13 @@ function renderEmojiBars(parent = document) {
   });
 }
 
-function setTheme(themeId) {
+function setTheme(themeId, sync = true) {
   const theme = THEMES.find((item) => item.id === themeId) || THEMES[0];
   document.body.classList.remove(...THEME_CLASSES);
   if (theme.className) document.body.classList.add(theme.className);
   $("#themeLabel").textContent = theme.label;
   saveJson(THEME_KEY, theme.id);
+  if (sync) scheduleUserStateSync();
 }
 
 function localPetChatReply(pet, text, images = []) {
@@ -1107,7 +1244,7 @@ async function publishPublicDiary(diary) {
     const latest = diaries.find((item) => item.id === diary.id);
     if (latest) {
       latest.publicStatus = "synced";
-      saveJson(STORAGE_KEY, diaries);
+      saveDiaries();
       renderTimeline();
     }
   } catch (error) {
@@ -1115,7 +1252,7 @@ async function publishPublicDiary(diary) {
     const latest = diaries.find((item) => item.id === diary.id);
     if (latest) {
       latest.publicStatus = "local";
-      saveJson(STORAGE_KEY, diaries);
+      saveDiaries();
       renderTimeline();
     }
   }
@@ -1140,7 +1277,7 @@ async function submitPublicComment(postId, text) {
     createdAt: new Date().toISOString(),
   };
   diary.publicComments = [...getPublicComments(diary), comment];
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   if ($("#detailDialog")?.open && $("#detailDialog").dataset.postId === postId) showDetail(postId);
   try {
@@ -1157,7 +1294,7 @@ async function deletePublicComment(postId, commentId) {
   const diary = diaries.find((item) => item.id === postId);
   if (!diary) return;
   diary.publicComments = getPublicComments(diary).filter((comment) => comment.id !== commentId);
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   if ($("#detailDialog")?.open && $("#detailDialog").dataset.postId === postId) showDetail(postId);
   try {
@@ -1172,7 +1309,7 @@ async function unpublishPublicDiary(id) {
   if (!diary || diary.audience !== "public") return;
   if (!confirm("撤回这个公开树洞吗？")) return;
   diary.publicStatus = "withdrawn";
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   try {
     await serverRequest(`/api/diaries/public/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -1211,7 +1348,7 @@ function createDiary(text, images, mood, audience = "pets") {
     createdAt: new Date().toISOString(),
   };
   diaries.unshift(diary);
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   if (audience === "public") publishPublicDiary(diary);
   fillDiaryInteractions(diary.id);
@@ -1226,7 +1363,7 @@ async function fillDiaryInteractions(id) {
     const latest = diaries.find((item) => item.id === id);
     if (!latest) return;
     Object.assign(latest, interactions, { aiStatus: "ai" });
-    saveJson(STORAGE_KEY, diaries);
+    saveDiaries();
     renderAll();
     toast("小伙伴们送来抱抱和回声啦");
   } catch (error) {
@@ -1234,7 +1371,7 @@ async function fillDiaryInteractions(id) {
     const latest = diaries.find((item) => item.id === id);
     if (!latest) return;
     latest.aiStatus = "local";
-    saveJson(STORAGE_KEY, diaries);
+    saveDiaries();
     renderAll();
     toast("互动生成慢了一点，请稍后重抽回声");
   }
@@ -1249,7 +1386,7 @@ function deleteDiary(id) {
   }
   diaries = diaries.filter((item) => item.id !== id);
   expandedPosts.delete(id);
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
 }
 
@@ -1257,7 +1394,7 @@ function toggleFavorite(id) {
   const diary = diaries.find((item) => item.id === id);
   if (!diary) return;
   diary.favorite = !diary.favorite;
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   toast(diary.favorite ? "已收藏这个树洞" : "已取消收藏");
 }
@@ -1317,7 +1454,7 @@ async function addCommentReply(postId, commentId) {
     text: text.trim(),
     createdAt: new Date().toISOString(),
   });
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   if ($("#detailDialog").open) showDetail(postId);
   toast(`${pet?.name || "它"}正在回复你`);
@@ -1333,7 +1470,7 @@ async function addCommentReply(postId, commentId) {
     text: replyText.replace(new RegExp(`^${pet?.name || ""}[：:]`), "").trim(),
     createdAt: new Date().toISOString(),
   });
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   if ($("#detailDialog").open) showDetail(postId);
 }
@@ -1342,11 +1479,11 @@ async function regenerateDiary(id) {
   const diary = diaries.find((item) => item.id === id);
   if (!diary) return;
   diary.aiStatus = "loading";
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderTimeline();
   const interactions = await createInteractions(diary.text, diary.mood || "秘密", diary.images || []);
   Object.assign(diary, interactions, { aiStatus: "ai" });
-  saveJson(STORAGE_KEY, diaries);
+  saveDiaries();
   renderAll();
   toast("萌宠抱抱和回声已重新生成");
 }
@@ -1958,7 +2095,7 @@ async function importBackup(file) {
       aiStatus: "local",
       ...item,
     })));
-    saveJson(STORAGE_KEY, diaries);
+    saveDiaries();
     renderAll();
     toast("备份已导入");
   } catch {
@@ -2026,7 +2163,7 @@ function bindEvents() {
       }, false);
       $("#authName").value = "";
       $("#authPassword").value = "";
-      await loadChatMessagesFromServer();
+      await loadAccountDataFromServer();
       renderAll();
       showTab("feed");
       toast(isRegister ? "注册成功" : "登录成功");
@@ -2454,7 +2591,7 @@ async function initApp() {
   bindEvents();
   restoreTheme();
   renderEmojiBars();
-  if (authState.token) await loadChatMessagesFromServer();
+  if (authState.token) await loadAccountDataFromServer();
   renderAll();
   if (!authState.token) showTab("profile");
   maybeShowDailyGreeting();
