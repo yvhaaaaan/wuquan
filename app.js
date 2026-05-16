@@ -223,6 +223,9 @@ let activeMood = "秘密";
 let activeAudience = "pets";
 let activeAuthMode = "login";
 let activeChatPetId = "";
+let activeChatType = "pet";
+let activeHumanChatFriend = null;
+let activeHumanChatMessages = [];
 let activeCalendarDay = "";
 let searchKeyword = "";
 const expandedPosts = new Set();
@@ -614,8 +617,11 @@ function clearAccountScopedData() {
   friendMatches = [];
   safetyState = normalizeSafety({});
   favoritePublicIds = [];
+  activeHumanChatFriend = null;
+  activeHumanChatMessages = [];
   expandedPosts.clear();
   activeChatPetId = "";
+  activeChatType = "pet";
   activeCalendarDay = "";
   searchKeyword = "";
 }
@@ -1310,6 +1316,9 @@ async function publishPublicDiary(diary) {
         text: diary.text,
         images: diary.images,
         mood: diary.mood,
+        likes: diary.likes || [],
+        comments: diary.comments || [],
+        aiStatus: diary.aiStatus || "local",
         createdAt: diary.createdAt,
         author: {
           id: userProfile.id,
@@ -1455,6 +1464,7 @@ async function fillDiaryInteractions(id) {
     if (!latest) return;
     Object.assign(latest, interactions, { aiStatus: "ai" });
     saveDiaries();
+    if (latest.audience === "public" && latest.publicStatus !== "withdrawn") publishPublicDiary(latest);
     renderAll();
     toast("小伙伴们送来抱抱和回声啦");
   } catch (error) {
@@ -1732,11 +1742,13 @@ function renderPets() {
     const items = [...friendMatches, ...humanFriends].filter((friend, index, list) => (
       list.findIndex((item) => item.id === friend.id) === index
     ));
+    $("#petGrid").classList.add("human-grid");
     $("#petGrid").innerHTML = items.length
-      ? items.map((friend) => humanFriendCard(friend, humanFriends.some((item) => item.id === friend.id) ? "friend" : "match")).join("")
+      ? items.map((friend) => humanFriendCard(friend, humanFriends.some((item) => item.id === friend.id) ? "friend" : "match", true)).join("")
       : `<div class="empty-friend">今天还没有真人匹配。先去“我的”选择今日心情，再回来刷新。</div>`;
     return;
   }
+  $("#petGrid").classList.remove("human-grid");
   const pets = activePetCategory === "全部" ? PETS : PETS.filter((pet) => pet.category === activePetCategory);
   $("#petGrid").innerHTML = pets.map((pet) => `
     <article class="pet-card clickable" data-open-chat="${pet.id}" role="button" tabindex="0" aria-label="和${pet.name}聊天">
@@ -1776,15 +1788,56 @@ function chatPreviewText(pet) {
   return "点进去继续聊";
 }
 
+function humanChatPreviewText(friend) {
+  const message = activeHumanChatFriend?.id === friend.id
+    ? activeHumanChatMessages[activeHumanChatMessages.length - 1]
+    : null;
+  if (!message) return friend.bio || "真人同频好友";
+  if (message.text) return message.text;
+  if (message.images?.length) return `[图片] ${message.images.length} 张`;
+  return "点进去继续聊";
+}
+
 function openChatWithPet(petId) {
+  activeChatType = "pet";
   activeChatPetId = petId;
+  activeHumanChatFriend = null;
+  activeHumanChatMessages = [];
   $("#chatPanel").innerHTML = "";
   showTab("chat");
   renderChat();
 }
 
+async function openChatWithHuman(friendId) {
+  const friend = humanFriends.find((item) => item.id === friendId) || friendMatches.find((item) => item.id === friendId);
+  if (!friend || !humanFriends.some((item) => item.id === friend.id)) {
+    toast("先加为真人好友，才能进入对话");
+    return;
+  }
+  activeChatType = "human";
+  activeChatPetId = "";
+  activeHumanChatFriend = friend;
+  activeHumanChatMessages = [];
+  $("#chatPanel").innerHTML = `<div class="empty-friend">正在读取对话...</div>`;
+  showTab("chat");
+  renderChat();
+  try {
+    const data = await serverRequest(`/api/friend-chats/${encodeURIComponent(friend.id)}`);
+    activeHumanChatFriend = normalizeHumanFriends([data.friend || friend])[0] || friend;
+    activeHumanChatMessages = Array.isArray(data.messages) ? data.messages : [];
+    renderChat();
+  } catch (error) {
+    console.warn("Human chat load failed:", error);
+    toast("真人对话读取失败，请稍后再试");
+    closeChatConversation();
+  }
+}
+
 function closeChatConversation() {
   activeChatPetId = "";
+  activeChatType = "pet";
+  activeHumanChatFriend = null;
+  activeHumanChatMessages = [];
   chatDraftImages = [];
   renderChatImages();
   renderChat();
@@ -1802,7 +1855,17 @@ function renderChatList() {
   $("#chatImagePreview").hidden = true;
   $("#chatEmojiBar").classList.remove("show");
   $("#chatPetStrip").innerHTML = "";
-  panel.innerHTML = PETS.map((pet) => {
+  const humanSessions = humanFriends.map((friend) => `
+    <button class="chat-session human-session" type="button" data-open-human-chat="${friend.id}">
+      <span class="user-avatar mini" style='${avatarStyle(friend.avatar)}'></span>
+      <span>
+        <strong>${escapeHtml(friend.name)}</strong>
+        <small>${escapeHtml(humanChatPreviewText(friend))}</small>
+      </span>
+      <em>真人</em>
+    </button>
+  `).join("");
+  const petSessions = PETS.map((pet) => {
     const score = petCloseness(pet.id);
     return `
       <button class="chat-session" type="button" data-open-chat="${pet.id}">
@@ -1815,6 +1878,7 @@ function renderChatList() {
       </button>
     `;
   }).join("");
+  panel.innerHTML = `${humanSessions}${petSessions}`;
 }
 
 function renderChatPets() {
@@ -1824,6 +1888,10 @@ function renderChatPets() {
 }
 
 function renderChat() {
+  if (activeChatType === "human") {
+    renderHumanChat();
+    return;
+  }
   if (!activeChatPetId) {
     renderChatList();
     return;
@@ -1854,6 +1922,38 @@ function renderChat() {
   renderChatPets();
 }
 
+function renderHumanChat() {
+  const panel = $("#chatPanel");
+  if (!panel) return;
+  const friend = activeHumanChatFriend;
+  $("#chatView")?.classList.add("chat-thread-mode");
+  $("#chatView")?.classList.remove("chat-list-mode");
+  panel.classList.remove("chat-list-panel");
+  $("#chatPetName").textContent = friend ? `${friend.name} · 真人对话` : "真人对话";
+  $("#chatBackButton").hidden = false;
+  $("#chatForm").hidden = false;
+  $("#chatImagePreview").hidden = false;
+  $("#chatPetStrip").innerHTML = "";
+  if (!friend) {
+    panel.innerHTML = `<div class="empty-friend">没有选中真人好友</div>`;
+    return;
+  }
+  panel.innerHTML = activeHumanChatMessages.length ? activeHumanChatMessages.map((message) => {
+    const mine = message.authorId === userProfile.id;
+    return `
+      <div class="chat-message ${mine ? "user" : "friend"}" data-message-id="${message.id}">
+        ${mine ? "" : `<span class="user-avatar mini" style='${avatarStyle(friend.avatar)}'></span>`}
+        <div class="chat-bubble">
+          ${message.images?.length ? `<div class="chat-images">${message.images.map((src) => `<img src="${src}" alt="聊天图片" loading="lazy" />`).join("")}</div>` : ""}
+          ${message.text ? `<p>${escapeHtml(message.text)}</p>` : ""}
+        </div>
+        <button class="message-menu-button" type="button" data-message-menu="${message.id}" aria-label="消息操作">⋯</button>
+      </div>
+    `;
+  }).join("") : `<div class="empty-friend">还没有消息，打个招呼吧。</div>`;
+  panel.scrollTop = panel.scrollHeight;
+}
+
 function renderChatImages() {
   $("#chatImagePreview").innerHTML = chatDraftImages.map((src, index) => `
     <div class="chat-preview-item">
@@ -1864,6 +1964,10 @@ function renderChatImages() {
 }
 
 async function sendChatMessage(text, images = []) {
+  if (activeChatType === "human") {
+    await sendHumanChatMessage(text, images);
+    return;
+  }
   const pet = getPet(activeChatPetId) || PETS[0];
   const messages = getChatMessages(pet.id);
   messages.push({
@@ -1895,6 +1999,32 @@ async function sendChatMessage(text, images = []) {
   });
   await syncChatMessagesToServer(true);
   renderChat();
+}
+
+async function sendHumanChatMessage(text, images = []) {
+  if (!activeHumanChatFriend) return;
+  const optimistic = {
+    id: uid(),
+    authorId: userProfile.id,
+    text,
+    images,
+    createdAt: new Date().toISOString(),
+  };
+  activeHumanChatMessages.push(optimistic);
+  renderChat();
+  try {
+    const data = await serverRequest(`/api/friend-chats/${encodeURIComponent(activeHumanChatFriend.id)}`, {
+      method: "POST",
+      body: JSON.stringify(optimistic),
+    });
+    activeHumanChatMessages = Array.isArray(data.messages) ? data.messages : activeHumanChatMessages;
+    renderChat();
+  } catch (error) {
+    console.warn("Human chat send failed:", error);
+    activeHumanChatMessages = activeHumanChatMessages.filter((message) => message.id !== optimistic.id);
+    renderChat();
+    toast("真人消息没有保存到服务器，请检查网络");
+  }
 }
 
 function renderProfile() {
@@ -1969,10 +2099,10 @@ function renderHumanFriends() {
 
 function humanFriendCard(friend, mode) {
   const action = mode === "friend"
-    ? `<div class="human-friend-actions"><button type="button" data-stop-friend="${friend.id}">停止对话</button><button type="button" data-block-friend="${friend.id}">拉黑</button></div>`
+    ? `<div class="human-friend-actions"><button type="button" data-open-human-chat="${friend.id}">对话</button><button type="button" data-stop-friend="${friend.id}">停止对话</button><button type="button" data-block-friend="${friend.id}">拉黑</button></div>`
     : `<button type="button" data-add-friend="${friend.id}">加好友</button>`;
   return `
-    <article class="human-friend">
+    <article class="human-friend ${mode === "friend" ? "clickable" : ""}" ${mode === "friend" ? `data-open-human-chat="${friend.id}" role="button" tabindex="0"` : ""}>
       <span class="user-avatar mini" style='${avatarStyle(friend.avatar)}'></span>
       <div>
         <strong>${escapeHtml(friend.name)}</strong>
@@ -2150,6 +2280,10 @@ function toast(message, options = {}) {
 }
 
 function showMessageMenu(messageId) {
+  if (activeChatType === "human") {
+    showHumanMessageMenu(messageId);
+    return;
+  }
   const pet = getPet(activeChatPetId) || PETS[0];
   const messages = getChatMessages(pet.id);
   const message = messages.find((item) => item.id === messageId);
@@ -2194,6 +2328,33 @@ function showMessageMenu(messageId) {
         await syncChatMessagesToServer(true);
         renderChat();
       }
+      dialog.close();
+    }
+  });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+}
+
+function showHumanMessageMenu(messageId) {
+  const message = activeHumanChatMessages.find((item) => item.id === messageId);
+  if (!message) return;
+  const dialog = document.createElement("dialog");
+  dialog.className = "action-dialog";
+  dialog.innerHTML = `
+    <div class="dialog-head">
+      <strong>消息操作</strong>
+      <button class="icon-button ghost" data-menu-action="close" type="button">×</button>
+    </div>
+    <button type="button" data-menu-action="copy">复制</button>
+  `;
+  document.body.appendChild(dialog);
+  dialog.addEventListener("click", async (event) => {
+    const action = event.target.dataset.menuAction;
+    if (!action) return;
+    if (action === "close") dialog.close();
+    if (action === "copy") {
+      await navigator.clipboard?.writeText(message.text || "");
+      toast("已复制");
       dialog.close();
     }
   });
@@ -2561,6 +2722,11 @@ function bindEvents() {
       blockHumanFriend(blockButton.dataset.blockFriend);
       return;
     }
+    const humanChat = event.target.closest("[data-open-human-chat]");
+    if (humanChat) {
+      openChatWithHuman(humanChat.dataset.openHumanChat);
+      return;
+    }
     const card = event.target.closest("[data-open-chat]");
     if (!card) return;
     openChatWithPet(card.dataset.openChat);
@@ -2568,6 +2734,12 @@ function bindEvents() {
 
   $("#petGrid").addEventListener("keydown", (event) => {
     if (!["Enter", " "].includes(event.key)) return;
+    const humanChat = event.target.closest("[data-open-human-chat]");
+    if (humanChat) {
+      event.preventDefault();
+      openChatWithHuman(humanChat.dataset.openHumanChat);
+      return;
+    }
     const card = event.target.closest("[data-open-chat]");
     if (!card) return;
     event.preventDefault();
@@ -2626,6 +2798,11 @@ function bindEvents() {
   });
 
   $("#chatPanel").addEventListener("click", (event) => {
+    const humanChat = event.target.closest("[data-open-human-chat]");
+    if (humanChat) {
+      openChatWithHuman(humanChat.dataset.openHumanChat);
+      return;
+    }
     const chat = event.target.closest("[data-open-chat]");
     if (chat) {
       openChatWithPet(chat.dataset.openChat);

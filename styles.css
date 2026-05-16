@@ -3853,6 +3853,10 @@ input:focus {
   gap: 11px;
 }
 
+.pet-grid.human-grid {
+  grid-template-columns: 1fr;
+}
+
 .pet-card {
   padding: 13px;
 }
@@ -4053,6 +4057,11 @@ input:focus {
 }
 
 .chat-message.pet .chat-bubble p {
+  color: #62495a;
+  background: var(--bubble-pet);
+}
+
+.chat-message.friend .chat-bubble p {
   color: #62495a;
   background: var(--bubble-pet);
 }
@@ -4497,6 +4506,10 @@ body.logged-out .auth-form label[hidden] {
   padding: 10px;
   border-radius: 18px;
   background: color-mix(in srgb, var(--card) 84%, white 16%);
+}
+
+.human-friend.clickable {
+  cursor: pointer;
 }
 
 .human-friend strong,

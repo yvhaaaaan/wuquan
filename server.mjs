@@ -10,6 +10,7 @@ const ROOT = __dirname;
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = Number(process.env.PORT || 5177);
 const DATA_FILE = path.resolve(process.env.WUQUAN_DB_FILE || path.join(ROOT, ".wuquan-data", "db.json"));
+const SQL_FILE = path.resolve(process.env.WUQUAN_SQLITE_FILE || path.join(ROOT, ".wuquan-data", "wuquan.sqlite"));
 const JWT_SECRET = process.env.JWT_SECRET || "wuquan-dev-secret-change-me";
 const TOKEN_TTL_SECONDS = Number(process.env.TOKEN_TTL_SECONDS || 60 * 60 * 24 * 30);
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 10 * 1024 * 1024);
@@ -45,8 +46,63 @@ const STATIC_BLOCKLIST = new Set([
 ]);
 
 const rateBuckets = new Map();
+const sql = await initSqlStore();
 let db = await loadDb();
 let writeQueue = Promise.resolve();
+
+async function initSqlStore() {
+  try {
+    const { default: Database } = await import("better-sqlite3");
+    await mkdir(path.dirname(SQL_FILE), { recursive: true });
+    const database = new Database(SQL_FILE);
+    database.pragma("journal_mode = WAL");
+    database.pragma("foreign_keys = ON");
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS app_state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS friend_chats (
+        chat_id TEXT PRIMARY KEY,
+        user_a TEXT NOT NULL,
+        user_b TEXT NOT NULL,
+        messages TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS pet_chats (
+        user_id TEXT PRIMARY KEY,
+        chats TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    return {
+      database,
+      getAppState: database.prepare("SELECT value FROM app_state WHERE key = ?"),
+      setAppState: database.prepare(`
+        INSERT INTO app_state (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+      `),
+      getFriendChat: database.prepare("SELECT messages FROM friend_chats WHERE chat_id = ?"),
+      setFriendChat: database.prepare(`
+        INSERT INTO friend_chats (chat_id, user_a, user_b, messages, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET messages = excluded.messages, updated_at = excluded.updated_at
+      `),
+      deleteFriendChat: database.prepare("DELETE FROM friend_chats WHERE chat_id = ?"),
+      getPetChats: database.prepare("SELECT chats FROM pet_chats WHERE user_id = ?"),
+      setPetChats: database.prepare(`
+        INSERT INTO pet_chats (user_id, chats, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET chats = excluded.chats, updated_at = excluded.updated_at
+      `),
+    };
+  } catch (error) {
+    console.warn("SQLite is unavailable; falling back to JSON storage:", error.message);
+    return null;
+  }
+}
 
 if (JWT_SECRET === "wuquan-dev-secret-change-me") {
   console.warn("JWT_SECRET is using the development default. Set JWT_SECRET in production.");
@@ -61,6 +117,7 @@ function createEmptyDb() {
     reports: [],
     blocks: [],
     petChats: {},
+    friendChats: {},
     userStates: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -80,14 +137,27 @@ function normalizeDb(value) {
     reports: Array.isArray(raw.reports) ? raw.reports : [],
     blocks: Array.isArray(raw.blocks) ? raw.blocks : [],
     petChats: isPlainObject(raw.petChats) ? raw.petChats : {},
+    friendChats: isPlainObject(raw.friendChats) ? raw.friendChats : {},
     userStates: isPlainObject(raw.userStates) ? raw.userStates : {},
   };
 }
 
 async function loadDb() {
+  if (sql) {
+    const row = sql.getAppState.get("db");
+    if (row?.value) {
+      try {
+        return normalizeDb(JSON.parse(row.value));
+      } catch (error) {
+        console.warn("Could not parse SQLite app state:", error.message);
+      }
+    }
+  }
   try {
     const text = await readFile(DATA_FILE, "utf8");
-    return normalizeDb(JSON.parse(text));
+    const migrated = normalizeDb(JSON.parse(text));
+    if (sql) sql.setAppState.run("db", JSON.stringify(migrated), new Date().toISOString());
+    return migrated;
   } catch (error) {
     if (error.code !== "ENOENT") console.warn(`Could not read ${DATA_FILE}:`, error.message);
     return createEmptyDb();
@@ -97,6 +167,10 @@ async function loadDb() {
 async function persistDb() {
   db.updatedAt = new Date().toISOString();
   const payload = JSON.stringify(db, null, 2);
+  if (sql) {
+    const now = new Date().toISOString();
+    sql.setAppState.run("db", payload, now);
+  }
   writeQueue = writeQueue.catch(() => undefined).then(async () => {
     await mkdir(path.dirname(DATA_FILE), { recursive: true });
     const tmp = `${DATA_FILE}.${process.pid}.tmp`;
@@ -385,12 +459,78 @@ function sanitizeChatMessage(message) {
   return { id, role, text, images, createdAt };
 }
 
+function sanitizeEchoReply(reply) {
+  if (!isPlainObject(reply)) return null;
+  const role = reply.role === "pet" ? "pet" : "user";
+  const text = cleanText(reply.text, 1000);
+  if (!text) return null;
+  return {
+    id: cleanText(reply.id, 120) || crypto.randomUUID(),
+    role,
+    text,
+    createdAt: cleanText(reply.createdAt, 40) || new Date().toISOString(),
+  };
+}
+
+function sanitizePetEcho(comment) {
+  if (!isPlainObject(comment)) return null;
+  const petId = cleanText(comment.petId, 80);
+  const text = cleanText(comment.text, 2000);
+  if (!petId || !text) return null;
+  return {
+    id: cleanText(comment.id, 120) || crypto.randomUUID(),
+    petId,
+    emotion: cleanText(comment.emotion, 120),
+    text,
+    replies: Array.isArray(comment.replies) ? comment.replies.map(sanitizeEchoReply).filter(Boolean).slice(-20) : [],
+  };
+}
+
 function sanitizePetChats(value) {
   if (!isPlainObject(value)) return {};
   return Object.fromEntries(Object.entries(value).map(([petId, messages]) => [
     cleanText(petId, 80),
     Array.isArray(messages) ? messages.map(sanitizeChatMessage).filter(Boolean).slice(-200) : [],
   ]).filter(([petId]) => petId));
+}
+
+function sanitizeFriendChatMessage(message, fallbackAuthorId = "") {
+  if (!isPlainObject(message)) return null;
+  const authorId = cleanText(message.authorId, 120) || fallbackAuthorId;
+  const text = cleanText(message.text, 2000);
+  const images = normalizeImages(message.images);
+  if (!authorId || (!text && !images.length)) return null;
+  return {
+    id: cleanText(message.id, 120) || crypto.randomUUID(),
+    authorId,
+    text,
+    images,
+    createdAt: cleanText(message.createdAt, 40) || new Date().toISOString(),
+  };
+}
+
+function sanitizeFriendChat(value) {
+  return Array.isArray(value) ? value.map((message) => sanitizeFriendChatMessage(message)).filter(Boolean).slice(-300) : [];
+}
+
+function loadUserPetChats(userId) {
+  if (sql) {
+    const row = sql.getPetChats.get(userId);
+    if (row?.chats) {
+      try {
+        db.petChats[userId] = sanitizePetChats(JSON.parse(row.chats));
+      } catch (error) {
+        console.warn("Could not parse SQL pet chats:", error.message);
+      }
+    }
+  }
+  db.petChats[userId] = sanitizePetChats(db.petChats[userId] || {});
+  return db.petChats[userId];
+}
+
+function saveUserPetChats(userId, chats) {
+  db.petChats[userId] = sanitizePetChats(chats);
+  if (sql) sql.setPetChats.run(userId, JSON.stringify(db.petChats[userId]), new Date().toISOString());
 }
 
 function sanitizeUserState(value) {
@@ -466,6 +606,33 @@ function findActiveFriendship(a, b) {
   ));
 }
 
+function friendChatId(a, b) {
+  return sortedPair(a, b).join("__");
+}
+
+function loadFriendChat(a, b) {
+  const chatId = friendChatId(a, b);
+  if (sql) {
+    const row = sql.getFriendChat.get(chatId);
+    if (row?.messages) {
+      try {
+        db.friendChats[chatId] = sanitizeFriendChat(JSON.parse(row.messages));
+      } catch (error) {
+        console.warn("Could not parse SQL friend chat:", error.message);
+      }
+    }
+  }
+  db.friendChats[chatId] = sanitizeFriendChat(db.friendChats[chatId] || []);
+  return db.friendChats[chatId];
+}
+
+function saveFriendChat(a, b, messages) {
+  const pair = sortedPair(a, b);
+  const chatId = friendChatId(a, b);
+  db.friendChats[chatId] = sanitizeFriendChat(messages);
+  if (sql) sql.setFriendChat.run(chatId, pair[0], pair[1], JSON.stringify(db.friendChats[chatId]), new Date().toISOString());
+}
+
 function stopFriendship(a, b) {
   const pair = sortedPair(a, b);
   const now = new Date().toISOString();
@@ -480,6 +647,8 @@ function stopFriendship(a, b) {
       friendship.stoppedAt = now;
     }
   }
+  delete db.friendChats[friendChatId(a, b)];
+  if (sql) sql.deleteFriendChat.run(friendChatId(a, b));
 }
 
 function upsertFriendMood(user, mood, date, profile) {
@@ -546,6 +715,9 @@ function publicPostForResponse(post) {
     publicStatus: "synced",
     author: post.author,
     commentIdentity: post.commentIdentity,
+    likes: Array.isArray(post.likes) ? post.likes : [],
+    comments: Array.isArray(post.comments) ? post.comments : [],
+    aiStatus: post.aiStatus || (Array.isArray(post.comments) && post.comments.length ? "ai" : "local"),
     publicComments: Array.isArray(post.publicComments) ? post.publicComments : [],
     createdAt: post.createdAt,
     updatedAt: post.updatedAt,
@@ -750,7 +922,7 @@ async function handleUser(req, res, segments, body) {
 async function handlePetChats(req, res, segments, body) {
   if (segments[1] !== "pet-chats") return false;
   const user = authenticate(req);
-  db.petChats[user.id] = sanitizePetChats(db.petChats[user.id] || {});
+  loadUserPetChats(user.id);
 
   if (segments.length === 2 && req.method === "GET") {
     sendJson(res, 200, { chats: db.petChats[user.id] });
@@ -758,9 +930,39 @@ async function handlePetChats(req, res, segments, body) {
   }
 
   if (segments.length === 2 && req.method === "PUT") {
-    db.petChats[user.id] = sanitizePetChats(body.chats || body);
+    saveUserPetChats(user.id, body.chats || body);
     await persistDb();
     sendJson(res, 200, { chats: db.petChats[user.id] });
+    return true;
+  }
+
+  return false;
+}
+
+async function handleFriendChats(req, res, segments, body) {
+  if (segments[1] !== "friend-chats") return false;
+  const user = authenticate(req);
+  const friendId = cleanText(segments[2], 120);
+  if (!friendId) throw httpError(400, "friendId is required.", "missing_friend");
+  const friend = db.users.find((item) => item.id === friendId);
+  if (!friend) throw httpError(404, "Friend was not found.", "friend_not_found");
+  if (!findActiveFriendship(user.id, friendId)) throw httpError(403, "You are not friends.", "not_friend");
+  if (isBlockedBetween(user.id, friendId)) throw httpError(403, "This interaction is blocked.", "blocked");
+
+  const chatId = friendChatId(user.id, friendId);
+  loadFriendChat(user.id, friendId);
+
+  if (segments.length === 3 && req.method === "GET") {
+    sendJson(res, 200, { friend: friendSummary(friend, db.friendMoods.find((entry) => entry.userId === friend.id)), messages: db.friendChats[chatId] });
+    return true;
+  }
+
+  if (segments.length === 3 && req.method === "POST") {
+    const message = sanitizeFriendChatMessage({ ...body, authorId: user.id }, user.id);
+    if (!message) throw httpError(400, "Message text or image is required.", "empty_message");
+    saveFriendChat(user.id, friendId, [...db.friendChats[chatId], message]);
+    await persistDb();
+    sendJson(res, 201, { message, messages: db.friendChats[chatId] });
     return true;
   }
 
@@ -816,6 +1018,9 @@ async function handlePublicDiaries(req, res, segments, body) {
       author: { id: user.id, name: user.name, avatar: user.avatar },
       commentIdentity: normalizePublicIdentity(body.commentIdentity, user),
       safety: { serverChecked: true, checkedAt: now },
+      likes: Array.isArray(body.likes) ? body.likes.map((item) => cleanText(item, 80)).filter(Boolean).slice(0, 100) : (existing?.likes || []),
+      comments: Array.isArray(body.comments) ? body.comments.map(sanitizePetEcho).filter(Boolean).slice(0, 100) : (existing?.comments || []),
+      aiStatus: cleanText(body.aiStatus, 40) || existing?.aiStatus || "local",
       publicComments: existing?.publicComments || [],
       createdAt: cleanText(body.createdAt, 80) || now,
       updatedAt: now,
@@ -1025,7 +1230,8 @@ async function handleApi(req, res, url) {
       sendJson(res, 200, {
         ok: true,
         app: "wuquan",
-        storage: path.relative(ROOT, DATA_FILE) || DATA_FILE,
+        storage: sql ? (path.relative(ROOT, SQL_FILE) || SQL_FILE) : (path.relative(ROOT, DATA_FILE) || DATA_FILE),
+        database: sql ? "sqlite" : "json",
         aiConfigured: Boolean(resolveAiUrl() && (process.env.AI_API_KEY || process.env.OPENAI_API_KEY)),
       });
       return;
@@ -1034,6 +1240,7 @@ async function handleApi(req, res, url) {
     const handled = await handleAuth(req, res, segments, body) ||
       await handleUser(req, res, segments, body) ||
       await handlePetChats(req, res, segments, body) ||
+      await handleFriendChats(req, res, segments, body) ||
       await handleAi(req, res, segments, body) ||
       await handlePublicDiaries(req, res, segments, body) ||
       await handleFriends(req, res, segments, body) ||
@@ -1126,6 +1333,6 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Wuquan server is running at http://localhost:${PORT}/`);
   console.log(`Static root: ${ROOT}`);
-  console.log(`Database file: ${DATA_FILE}`);
+  console.log(`Database file: ${sql ? SQL_FILE : DATA_FILE}`);
   console.log(`AI proxy: ${resolveAiUrl() ? "configured" : "local fallback"}`);
 });
