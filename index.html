@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fff8cf" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="吾圈树洞" />
+    <title>吾圈树洞 - 萌宠陪伴树洞</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./assets/app-icon-192.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="phone-shell">
+      <section class="app-screen">
+        <header class="topbar">
+          <button class="icon-button ghost" id="profileShortcut" aria-label="个人中心">♡</button>
+          <div>
+            <p class="eyebrow">猛兽派对树洞</p>
+            <h1>吾圈树洞</h1>
+          </div>
+          <button class="icon-button primary" id="composeShortcut" aria-label="投递树洞">＋</button>
+        </header>
+
+        <nav class="tabs" aria-label="主要页面">
+          <button class="tab active" data-tab="feed"><span>○</span>树洞</button>
+          <button class="tab" data-tab="compose"><span>＋</span>投递</button>
+          <button class="tab" data-tab="pets"><span>♡</span>萌宠</button>
+          <button class="tab" data-tab="chat"><span>✉</span>聊天</button>
+          <button class="tab" data-tab="profile"><span>⌂</span>我的</button>
+        </nav>
+
+        <section class="view active" id="feedView">
+          <div class="cover-card">
+            <div>
+              <p>把小心事丢进毛绒派对场</p>
+              <strong id="coverStats">0 个树洞</strong>
+            </div>
+            <div class="cover-pets" id="coverPets"></div>
+          </div>
+          <button class="daily-card" id="dailyQuote" type="button"></button>
+
+          <div class="feed-tools">
+            <label class="search-box">
+              <span>⌕</span>
+              <input id="searchInput" type="search" placeholder="搜索我的树洞" />
+            </label>
+            <div class="feed-filters" id="feedFilters">
+              <button class="active" data-filter="all">全部</button>
+              <button data-filter="text">倾诉</button>
+              <button data-filter="image">图片</button>
+              <button data-filter="today">今天</button>
+              <button data-filter="favorite">收藏</button>
+            </div>
+          </div>
+
+          <div class="timeline" id="timeline"></div>
+        </section>
+
+        <section class="view" id="composeView">
+          <form class="compose-card" id="composeForm">
+            <label class="field-label" for="diaryText">把此刻不方便说出口的话，丢进派对树洞</label>
+            <textarea id="diaryText" placeholder="可以是秘密、委屈、压力、想念，或者只是一句没人听见的话。" maxlength="1200" required></textarea>
+            <div class="emoji-bar" data-emoji-target="diaryText" aria-label="插入表情"></div>
+
+            <div class="mood-picker" id="moodPicker" aria-label="选择心情">
+              <button class="active" type="button" data-mood="秘密">秘密</button>
+              <button type="button" data-mood="委屈">委屈</button>
+              <button type="button" data-mood="焦虑">焦虑</button>
+              <button type="button" data-mood="想念">想念</button>
+              <button type="button" data-mood="压力">压力</button>
+              <button type="button" data-mood="开心">开心</button>
+            </div>
+            <div class="audience-picker" id="audiencePicker" aria-label="选择树洞范围">
+              <button class="active" type="button" data-audience="pets">
+                <strong>动物朋友</strong>
+                <span>只有萌宠来抱抱和回声</span>
+              </button>
+              <button type="button" data-audience="public">
+                <strong>面向公众</strong>
+                <span>发布到公开树洞广场</span>
+              </button>
+            </div>
+
+            <div class="image-tools">
+              <label class="image-picker">
+                <input id="imageInput" type="file" accept="image/*" multiple />
+                <span>＋ 添加图片</span>
+              </label>
+              <button type="button" class="soft-button" id="clearImages">清空图片</button>
+            </div>
+            <div class="preview-grid" id="imagePreview"></div>
+            <button class="publish-button" type="submit">投进树洞</button>
+          </form>
+          <div class="corner-mascots" aria-hidden="true">
+            <span>🐱</span><span>🐰</span><span>🐻</span>
+          </div>
+        </section>
+
+        <section class="view" id="petsView">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">派对伙伴</p>
+              <h2>81 位毛绒小伙伴</h2>
+            </div>
+            <span class="pill">8 大分类</span>
+          </div>
+          <section class="human-friends-card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">真人好友</p>
+                <h3>今日同频的人</h3>
+              </div>
+              <button class="pill" id="refreshFriendMatches" type="button">匹配</button>
+            </div>
+            <div class="human-friend-list" id="humanFriendList"></div>
+          </section>
+          <div class="pet-filters" id="petFilters"></div>
+          <div class="pet-grid" id="petGrid"></div>
+        </section>
+
+        <section class="view" id="chatView">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">派对后台</p>
+              <h2>和小伙伴偷偷说</h2>
+            </div>
+            <button class="pill chat-back-button" id="chatBackButton" type="button">会话</button>
+          </div>
+          <span class="pill" id="chatPetName">会话</span>
+          <div class="chat-pet-strip" id="chatPetStrip"></div>
+          <div class="chat-panel" id="chatPanel"></div>
+          <form class="chat-form" id="chatForm">
+            <label class="chat-image-button" aria-label="发送图片">
+              ＋
+              <input id="chatImageInput" type="file" accept="image/*" multiple />
+            </label>
+            <input id="chatInput" type="text" maxlength="300" placeholder="想对它说点什么？" autocomplete="off" />
+            <button class="emoji-toggle" type="button" data-emoji-panel="chatEmojiBar" aria-label="表情">☺</button>
+            <button type="submit">发送</button>
+          </form>
+          <div class="chat-image-preview" id="chatImagePreview"></div>
+          <div class="emoji-bar compact" id="chatEmojiBar" data-emoji-target="chatInput" aria-label="插入表情"></div>
+        </section>
+
+        <section class="view" id="profileView">
+          <div class="profile-card">
+            <div class="profile-avatar" id="profileAvatar">🐾</div>
+            <div>
+              <p class="eyebrow" id="profileEyebrow">只属于自己的树洞</p>
+              <h2 id="profileTitle">我的吾圈树洞</h2>
+              <p class="muted" id="profileSummary">已经投递 0 个树洞</p>
+            </div>
+          </div>
+          <section class="account-card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">吾圈账号</p>
+                <h3 id="accountTitle">登录后同步你的个人界面</h3>
+              </div>
+              <span class="pill" id="accountStatus">未登录</span>
+            </div>
+            <form class="auth-form" id="authForm">
+              <div class="auth-mode" id="authMode">
+                <button class="active" type="button" data-auth-mode="login">登录</button>
+                <button type="button" data-auth-mode="register">注册</button>
+              </div>
+              <label>
+                <span>用户名</span>
+                <input id="authName" type="text" autocomplete="username" maxlength="24" placeholder="取一个吾圈昵称" />
+              </label>
+              <label>
+                <span>邮箱</span>
+                <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" required />
+              </label>
+              <label>
+                <span>密码</span>
+                <input id="authPassword" type="password" autocomplete="current-password" minlength="6" placeholder="至少 6 位" required />
+              </label>
+              <button class="publish-button compact" id="authSubmit" type="submit">登录</button>
+            </form>
+            <form class="profile-form" id="profileForm" hidden>
+              <label>
+                <span>昵称</span>
+                <input id="profileNameInput" type="text" maxlength="24" placeholder="我的吾圈昵称" />
+              </label>
+              <label>
+                <span>签名</span>
+                <input id="profileBioInput" type="text" maxlength="36" placeholder="一句话介绍现在的自己" />
+              </label>
+              <div class="account-actions">
+                <button class="soft-button" type="submit">保存资料</button>
+                <button class="soft-button" id="logoutButton" type="button">退出登录</button>
+              </div>
+            </form>
+          </section>
+          <section class="mood-friends-card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">今日心情</p>
+                <h3>同心情才能加好友</h3>
+              </div>
+              <span class="pill" id="todayMoodStatus">未选择</span>
+            </div>
+            <div class="today-mood-picker" id="todayMoodPicker"></div>
+            <div class="friend-match-list" id="friendMatchList"></div>
+          </section>
+          <section class="public-identity-card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">公开评论身份</p>
+                <h3 id="publicIdentityPreview">使用原昵称</h3>
+              </div>
+              <span class="pill">公众树洞</span>
+            </div>
+            <div class="identity-mode" id="identityMode">
+              <button class="active" type="button" data-identity-mode="real">原昵称</button>
+              <button type="button" data-identity-mode="hidden">隐藏身份</button>
+            </div>
+            <label class="species-field" id="speciesField">
+              <span>我的物种</span>
+              <select id="speciesSelect">
+                <option value="猫猫">猫猫</option>
+                <option value="狗狗">狗狗</option>
+                <option value="兔兔">兔兔</option>
+                <option value="熊熊">熊熊</option>
+                <option value="小鸭">小鸭</option>
+                <option value="小鲨">小鲨</option>
+                <option value="恐龙">恐龙</option>
+                <option value="熊猫">熊猫</option>
+              </select>
+            </label>
+          </section>
+          <section class="personalize-card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">个人装扮</p>
+                <h3>头像和壁纸</h3>
+              </div>
+              <label class="mini-upload">
+                上传头像
+                <input id="customAvatarInput" type="file" accept="image/*" />
+              </label>
+            </div>
+            <div class="avatar-choice-grid" id="avatarChoices" aria-label="选择头像"></div>
+            <div class="section-head compact wallpaper-head">
+              <div>
+                <p class="eyebrow">背景墙</p>
+                <h3>选择你的个人壁纸</h3>
+              </div>
+              <label class="mini-upload">
+                上传壁纸
+                <input id="customWallpaperInput" type="file" accept="image/*" />
+              </label>
+            </div>
+            <div class="wallpaper-choice-grid" id="wallpaperChoices" aria-label="选择壁纸"></div>
+          </section>
+          <div class="stats-row">
+            <article><strong id="statPosts">0</strong><span>树洞</span></article>
+            <article><strong id="statLikes">0</strong><span>抱抱</span></article>
+            <article><strong id="statComments">0</strong><span>回声</span></article>
+          </div>
+          <div class="companion-insights" id="companionInsights"></div>
+          <section class="calendar-card">
+            <div class="section-head compact">
+              <div>
+                <p class="eyebrow">情绪日历</p>
+                <h3>最近 14 天</h3>
+              </div>
+              <span class="pill" id="calendarHint">0 天有记录</span>
+            </div>
+            <div class="emotion-calendar" id="emotionCalendar"></div>
+          </section>
+          <form class="settings-card" id="settingsForm">
+            <h3>服务端设置</h3>
+            <label>
+              <span>服务器地址</span>
+              <input id="serverUrl" type="url" placeholder="https://wuquan.art" />
+            </label>
+            <label>
+              <span>AI 模型名称</span>
+              <input id="apiModel" type="text" placeholder="mimo-v2-omni" />
+            </label>
+            <button class="soft-button full" type="submit">保存设置</button>
+            <p class="hint">AI 密钥只放在服务器端，前端不再保存或显示。接口未接通时，会自动使用本地语气生成树洞回声。</p>
+          </form>
+          <div class="menu-list">
+            <button type="button" id="showAllDiaries">我的全部树洞 <span id="menuDiaryCount">0</span></button>
+            <button type="button" id="themeToggle">主题配色 <span id="themeLabel">马卡龙</span></button>
+            <button type="button" id="versionInfo">当前版本 <span>1.6.6</span></button>
+            <button type="button" id="exportData">数据备份 <span>导出 JSON</span></button>
+            <label class="import-row">
+              <span>导入备份</span>
+              <small>选择 JSON</small>
+              <input id="importData" type="file" accept="application/json" />
+            </label>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="detail-dialog" id="detailDialog">
+      <div class="dialog-head">
+        <strong>树洞详情</strong>
+        <button class="icon-button ghost" id="closeDetail" aria-label="关闭">×</button>
+      </div>
+      <div id="detailContent"></div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script>
+    <script>
+      if ("serviceWorker" in navigator && location.protocol !== "file:") {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./sw.js");
+        });
+      }
+    </script>
+  </body>
+</html>

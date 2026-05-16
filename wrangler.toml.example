@@ -1,0 +1,9 @@
+name = "wuquan"
+compatibility_date = "2026-05-16"
+pages_build_output_dir = "."
+
+# Replace these ids after creating a KV namespace in Cloudflare.
+[[kv_namespaces]]
+binding = "WUQUAN_KV"
+id = "replace_with_production_kv_namespace_id"
+preview_id = "replace_with_preview_kv_namespace_id"

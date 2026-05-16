@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+
+node_modules/
+.mcp/
+.wuquan-data/
+data/
+
+*.log
+deploy/*.log
+wuquan*.zip
+
+.DS_Store
+Thumbs.db
+
+娣诲姞鍒颁富灞忓箷
