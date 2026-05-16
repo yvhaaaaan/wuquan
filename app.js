@@ -218,6 +218,10 @@ const expandedPosts = new Set();
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+const uid = () => {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
 const nativeCallbacks = new Map();
 
 function enableNativeMode() {
@@ -236,7 +240,7 @@ window.__nativeBridgeResolve = (callbackId, responseText, errorText) => {
 
 function nativeChatCompletion(payload) {
   if (!window.WuQuanNative?.postChatCompletion) return null;
-  const callbackId = crypto.randomUUID();
+  const callbackId = uid();
   return new Promise((resolve, reject) => {
     nativeCallbacks.set(callbackId, { resolve, reject });
     window.WuQuanNative.postChatCompletion(JSON.stringify(payload), callbackId);
@@ -657,7 +661,7 @@ async function reportPublicItem(targetId, targetType = "diary") {
   const reason = prompt("举报原因");
   if (!reason?.trim()) return;
   const report = {
-    id: crypto.randomUUID(),
+    id: uid(),
     targetId,
     targetType,
     reason: reason.trim(),
@@ -945,7 +949,7 @@ async function aiCommentForPets(text, pets, mood, images = []) {
     const parsedObject = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```$/i, "").trim());
     const parsed = Array.isArray(parsedObject) ? parsedObject : (parsedObject.comments || []);
     return petStates.map(({ pet, emotion }) => ({
-      id: crypto.randomUUID(),
+      id: uid(),
       petId: pet.id,
       emotion,
       replies: [],
@@ -955,7 +959,7 @@ async function aiCommentForPets(text, pets, mood, images = []) {
     console.warn("AI comment fallback:", error);
     toast("AI 暂时没接上，已用本地萌宠语气补上回声");
     return petStates.map(({ pet, emotion }) => ({
-      id: crypto.randomUUID(),
+      id: uid(),
       petId: pet.id,
       emotion,
       replies: [],
@@ -1071,7 +1075,7 @@ async function submitPublicComment(postId, text) {
     return;
   }
   const comment = {
-    id: crypto.randomUUID(),
+    id: uid(),
     text,
     identity: publicIdentityPayload(),
     createdAt: new Date().toISOString(),
@@ -1135,7 +1139,7 @@ function createDiary(text, images, mood, audience = "pets") {
     }
   }
   const diary = {
-    id: crypto.randomUUID(),
+    id: uid(),
     text,
     images,
     mood,
@@ -1249,7 +1253,7 @@ async function addCommentReply(postId, commentId) {
   if (!text?.trim()) return;
   comment.replies = comment.replies || [];
   comment.replies.push({
-    id: crypto.randomUUID(),
+    id: uid(),
     role: "user",
     text: text.trim(),
     createdAt: new Date().toISOString(),
@@ -1265,7 +1269,7 @@ async function addCommentReply(postId, commentId) {
   if (!latestComment) return;
   latestComment.replies = latestComment.replies || [];
   latestComment.replies.push({
-    id: crypto.randomUUID(),
+    id: uid(),
     role: "pet",
     text: replyText.replace(new RegExp(`^${pet?.name || ""}[：:]`), "").trim(),
     createdAt: new Date().toISOString(),
@@ -1404,7 +1408,7 @@ function getChatMessages(petId) {
   const pet = getPet(petId) || PETS[0];
   if (!chatMessages[pet.id]) {
     chatMessages[pet.id] = [{
-      id: crypto.randomUUID(),
+      id: uid(),
       role: "pet",
       text: `我是${pet.name}，${pet.persona}。我现在${petEmotion(pet)}，你可以把不好开口的话慢慢告诉我。`,
       createdAt: new Date().toISOString(),
@@ -1429,6 +1433,7 @@ function chatPreviewText(pet) {
 
 function openChatWithPet(petId) {
   activeChatPetId = petId;
+  $("#chatPanel").innerHTML = "";
   showTab("chat");
   renderChat();
 }
@@ -1517,7 +1522,7 @@ async function sendChatMessage(text, images = []) {
   const pet = getPet(activeChatPetId) || PETS[0];
   const messages = getChatMessages(pet.id);
   messages.push({
-    id: crypto.randomUUID(),
+    id: uid(),
     role: "user",
     text,
     images,
@@ -1538,7 +1543,7 @@ async function sendChatMessage(text, images = []) {
   const typingIndex = messages.findIndex((message) => message.typing);
   if (typingIndex !== -1) messages.splice(typingIndex, 1);
   messages.push({
-    id: crypto.randomUUID(),
+    id: uid(),
     role: "pet",
     text: reply,
     createdAt: new Date().toISOString(),
@@ -1692,6 +1697,10 @@ function renderAll() {
 }
 
 function showTab(tab) {
+  if (!authState.token && tab !== "profile") {
+    tab = "profile";
+    toast("请先登录吾圈账号");
+  }
   $$(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${tab}View`));
   if (tab === "chat") renderChat();
@@ -1833,7 +1842,7 @@ function showMessageMenu(messageId) {
         saveJson(CHAT_KEY, chatMessages);
         renderChat();
         const reply = await aiPetChatReply(pet, lastUser.text || "", lastUser.images || []);
-        messages.splice(index, 0, { id: crypto.randomUUID(), role: "pet", text: reply, createdAt: new Date().toISOString() });
+        messages.splice(index, 0, { id: uid(), role: "pet", text: reply, createdAt: new Date().toISOString() });
         saveJson(CHAT_KEY, chatMessages);
         renderChat();
       }
@@ -1949,6 +1958,7 @@ function bindEvents() {
       }, false);
       $("#authPassword").value = "";
       renderAll();
+      showTab("feed");
       toast(activeAuthMode === "register" ? "注册成功" : "登录成功");
     } catch (error) {
       toast(error.message || "账号接口暂时没接上");
@@ -1971,6 +1981,7 @@ function bindEvents() {
   $("#logoutButton").addEventListener("click", () => {
     saveAuth({});
     renderAll();
+    showTab("profile");
     toast("已退出登录");
   });
 
@@ -2010,11 +2021,27 @@ function bindEvents() {
     renderAll();
   });
 
+  $("#profileAvatar").addEventListener("click", () => {
+    if (!authState.token) {
+      showTab("profile");
+      toast("请先登录吾圈账号");
+      return;
+    }
+    $("#customAvatarInput").click();
+  });
+
   $("#wallpaperChoices").addEventListener("click", (event) => {
     const button = event.target.closest("[data-wallpaper-index]");
     if (!button) return;
     saveUserProfile({ wallpaper: { type: "preset", index: Number(button.dataset.wallpaperIndex) } });
     renderAll();
+    $("#wallpaperChoices").classList.remove("show");
+    $(".wallpaper-upload")?.classList.remove("show");
+  });
+
+  $("#changeWallpaperButton").addEventListener("click", () => {
+    $("#wallpaperChoices").classList.toggle("show");
+    $(".wallpaper-upload")?.classList.toggle("show");
   });
 
   $("#customAvatarInput").addEventListener("change", async (event) => {
@@ -2352,4 +2379,5 @@ bindEvents();
 restoreTheme();
 renderEmojiBars();
 renderAll();
+if (!authState.token) showTab("profile");
 maybeShowDailyGreeting();

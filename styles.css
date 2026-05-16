@@ -4169,6 +4169,7 @@ input:focus {
 }
 
 .profile-avatar {
+  border: 0;
   display: grid;
   place-items: center;
   width: 72px;
@@ -4179,6 +4180,7 @@ input:focus {
   background-repeat: no-repeat;
   background-size: cover;
   font-size: 36px;
+  cursor: pointer;
 }
 
 .user-avatar {
@@ -4339,12 +4341,30 @@ select {
 }
 
 .wallpaper-choice-grid {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   max-height: 190px;
   overflow: auto;
   padding: 2px;
+}
+
+.wallpaper-choice-grid.show {
+  display: grid;
+}
+
+.wallpaper-upload {
+  display: none;
+  width: max-content;
+  margin-top: 10px;
+}
+
+.wallpaper-upload.show {
+  display: inline-block;
+}
+
+.app-admin-only {
+  display: none !important;
 }
 
 .wallpaper-choice-grid button {

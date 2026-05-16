@@ -147,7 +147,7 @@
 
         <section class="view" id="profileView">
           <div class="profile-card">
-            <div class="profile-avatar" id="profileAvatar">🐾</div>
+            <button class="profile-avatar" id="profileAvatar" type="button" aria-label="更换头像">🐾</button>
             <div>
               <p class="eyebrow" id="profileEyebrow">只属于自己的树洞</p>
               <h2 id="profileTitle">我的吾圈树洞</h2>
@@ -250,12 +250,13 @@
                 <p class="eyebrow">背景墙</p>
                 <h3>选择你的个人壁纸</h3>
               </div>
-              <label class="mini-upload">
-                上传壁纸
-                <input id="customWallpaperInput" type="file" accept="image/*" />
-              </label>
+              <button class="mini-upload" id="changeWallpaperButton" type="button">更换壁纸</button>
             </div>
             <div class="wallpaper-choice-grid" id="wallpaperChoices" aria-label="选择壁纸"></div>
+            <label class="mini-upload wallpaper-upload">
+              上传壁纸
+              <input id="customWallpaperInput" type="file" accept="image/*" />
+            </label>
           </section>
           <div class="stats-row">
             <article><strong id="statPosts">0</strong><span>树洞</span></article>
@@ -273,7 +274,7 @@
             </div>
             <div class="emotion-calendar" id="emotionCalendar"></div>
           </section>
-          <form class="settings-card" id="settingsForm">
+          <form class="settings-card app-admin-only" id="settingsForm">
             <h3>服务端设置</h3>
             <label>
               <span>服务器地址</span>
@@ -290,8 +291,8 @@
             <button type="button" id="showAllDiaries">我的全部树洞 <span id="menuDiaryCount">0</span></button>
             <button type="button" id="themeToggle">主题配色 <span id="themeLabel">马卡龙</span></button>
             <button type="button" id="versionInfo">当前版本 <span>1.6.6</span></button>
-            <button type="button" id="exportData">数据备份 <span>导出 JSON</span></button>
-            <label class="import-row">
+            <button class="app-admin-only" type="button" id="exportData">数据备份 <span>导出 JSON</span></button>
+            <label class="import-row app-admin-only">
               <span>导入备份</span>
               <small>选择 JSON</small>
               <input id="importData" type="file" accept="application/json" />

@@ -1,4 +1,4 @@
-const CACHE_NAME = "wuquan-app-v5";
+const CACHE_NAME = "wuquan-app-v6";
 const APP_SHELL = [
   "./",
   "./index.html",
