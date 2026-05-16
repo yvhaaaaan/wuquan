@@ -756,6 +756,22 @@ async function syncChatMessagesToServer(showError = false) {
   }
 }
 
+async function appendPetChatMessageToServer(petId, message, showError = false) {
+  if (!authState.token) return false;
+  try {
+    const data = await serverRequest(`/api/pet-chats/${encodeURIComponent(petId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify(message),
+    });
+    if (Array.isArray(data.messages)) chatMessages[petId] = data.messages;
+    return true;
+  } catch (error) {
+    console.warn("Chat append save failed:", error);
+    if (showError) toast("聊天没有写入数据库，请检查网络后再试");
+    return false;
+  }
+}
+
 async function syncProfileToServer() {
   try {
     await serverRequest("/api/user/me", {
@@ -1828,7 +1844,7 @@ async function openChatWithHuman(friendId) {
     renderChat();
   } catch (error) {
     console.warn("Human chat load failed:", error);
-    toast("真人对话读取失败，请稍后再试");
+    toast(`真人对话读取失败：${error.message || "请稍后再试"}`);
     closeChatConversation();
   }
 }
@@ -1970,14 +1986,15 @@ async function sendChatMessage(text, images = []) {
   }
   const pet = getPet(activeChatPetId) || PETS[0];
   const messages = getChatMessages(pet.id);
-  messages.push({
+  const userMessage = {
     id: uid(),
     role: "user",
     text,
     images,
     createdAt: new Date().toISOString(),
-  });
-  await syncChatMessagesToServer(true);
+  };
+  messages.push(userMessage);
+  await appendPetChatMessageToServer(pet.id, userMessage, true);
   renderChat();
 
   messages.push({
@@ -1991,13 +2008,14 @@ async function sendChatMessage(text, images = []) {
   const reply = await aiPetChatReply(pet, text, images);
   const typingIndex = messages.findIndex((message) => message.typing);
   if (typingIndex !== -1) messages.splice(typingIndex, 1);
-  messages.push({
+  const petMessage = {
     id: uid(),
     role: "pet",
     text: reply,
     createdAt: new Date().toISOString(),
-  });
-  await syncChatMessagesToServer(true);
+  };
+  messages.push(petMessage);
+  await appendPetChatMessageToServer(pet.id, petMessage, true);
   renderChat();
 }
 
@@ -2023,7 +2041,7 @@ async function sendHumanChatMessage(text, images = []) {
     console.warn("Human chat send failed:", error);
     activeHumanChatMessages = activeHumanChatMessages.filter((message) => message.id !== optimistic.id);
     renderChat();
-    toast("真人消息没有保存到服务器，请检查网络");
+    toast(`真人消息没有保存：${error.message || "请检查网络"}`);
   }
 }
 
@@ -2190,7 +2208,7 @@ window.__androidBack = () => {
   }
   const active = $(".tab.active")?.dataset.tab || "feed";
   if (active !== "feed") {
-    if (active === "chat" && activeChatPetId) {
+    if (active === "chat" && (activeChatPetId || activeChatType === "human")) {
       closeChatConversation();
       return true;
     }
@@ -2522,6 +2540,11 @@ function bindEvents() {
   });
 
   $("#humanFriendList").addEventListener("click", async (event) => {
+    const humanChat = event.target.closest("[data-open-human-chat]");
+    if (humanChat) {
+      await openChatWithHuman(humanChat.dataset.openHumanChat);
+      return;
+    }
     const stopButton = event.target.closest("[data-stop-friend]");
     if (stopButton) {
       await stopHumanFriend(stopButton.dataset.stopFriend);

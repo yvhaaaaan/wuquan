@@ -936,6 +936,21 @@ async function handlePetChats(req, res, segments, body) {
     return true;
   }
 
+  if (segments.length === 4 && segments[3] === "messages" && req.method === "POST") {
+    const petId = cleanText(segments[2], 80);
+    if (!petId) throw httpError(400, "petId is required.", "missing_pet");
+    const message = sanitizeChatMessage(body);
+    if (!message || (!message.text && !message.images.length)) throw httpError(400, "Message text or image is required.", "empty_message");
+    const current = Array.isArray(db.petChats[user.id][petId]) ? db.petChats[user.id][petId] : [];
+    saveUserPetChats(user.id, {
+      ...db.petChats[user.id],
+      [petId]: [...current, message],
+    });
+    await persistDb();
+    sendJson(res, 201, { message, messages: db.petChats[user.id][petId], chats: db.petChats[user.id] });
+    return true;
+  }
+
   return false;
 }
 
