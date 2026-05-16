@@ -587,6 +587,16 @@ function localAiFallback(body) {
   };
 }
 
+function resolveAiModel(requestedModel) {
+  const model = cleanText(process.env.AI_MODEL || requestedModel || "mimo-v2-omni", 120);
+  const aliases = new Map([
+    ["mimo-v2-omni", "mimo-v2-omni"],
+    ["mimo-v2-pro", "mimo-v2-pro"],
+    ["mimo-v2-flash", "mimo-v2-flash"],
+  ]);
+  return aliases.get(model.toLowerCase()) || model;
+}
+
 async function proxyAiCompletion(body) {
   const apiUrl = resolveAiUrl();
   const apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || "";
@@ -598,8 +608,7 @@ async function proxyAiCompletion(body) {
   const timeout = setTimeout(() => controller.abort(), Number(process.env.AI_TIMEOUT_MS || 60000));
   const requestBody = {
     ...body,
-    model: process.env.AI_MODEL || body.model || "mimo-v2-omni",
-    stream: false,
+    model: resolveAiModel(body.model),
   };
   const headers = {
     "Content-Type": "application/json",
