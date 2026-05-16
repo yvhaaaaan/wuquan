@@ -191,6 +191,7 @@ body::before {
 
 .my-avatar,
 .profile-avatar {
+  color: transparent;
   border: 0;
   color: #ffffff;
   background: #07c160;
@@ -4184,6 +4185,8 @@ input:focus {
   font-size: 36px;
   cursor: pointer;
   box-shadow: 0 8px 0 rgba(32, 37, 50, 0.12);
+  text-indent: -9999px;
+  overflow: hidden;
 }
 
 .user-avatar {
@@ -4417,15 +4420,57 @@ body.logged-out .native-app .view {
 body.logged-out .account-card {
   width: min(100%, 520px);
   margin: 0;
-  padding: 24px 20px;
+  padding: 30px 22px 24px;
+  border: 3px solid rgba(32, 37, 50, 0.95) !important;
+  border-radius: 32px;
 }
 
 body.logged-out .account-card .section-head {
   align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+body.logged-out .account-card .section-head .pill {
+  display: none;
 }
 
 body.logged-out .auth-form {
-  gap: 14px;
+  gap: 16px;
+}
+
+body.logged-out .account-card .section-head h3 {
+  font-size: 32px;
+  line-height: 1.12;
+}
+
+body.logged-out .auth-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 4px;
+  border: 2px solid rgba(32, 37, 50, 0.9);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+body.logged-out .auth-mode button {
+  justify-content: center;
+  min-height: 42px;
+  border-radius: 13px;
+}
+
+body.logged-out .auth-form input {
+  min-height: 48px;
+}
+
+body.logged-out .auth-form .publish-button {
+  min-height: 50px;
+  border-radius: 18px;
+  font-size: 16px;
+}
+
+body.logged-out .auth-form label[hidden] {
+  display: none !important;
 }
 
 .wallpaper-choice-grid button {

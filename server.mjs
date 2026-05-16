@@ -60,6 +60,7 @@ function createEmptyDb() {
     friendships: [],
     reports: [],
     blocks: [],
+    petChats: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -77,6 +78,7 @@ function normalizeDb(value) {
     friendships: Array.isArray(raw.friendships) ? raw.friendships : [],
     reports: Array.isArray(raw.reports) ? raw.reports : [],
     blocks: Array.isArray(raw.blocks) ? raw.blocks : [],
+    petChats: isPlainObject(raw.petChats) ? raw.petChats : {},
   };
 }
 
@@ -369,6 +371,24 @@ function publicUser(user) {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
+}
+
+function sanitizeChatMessage(message) {
+  if (!isPlainObject(message)) return null;
+  const role = message.role === "user" ? "user" : "pet";
+  const id = cleanText(message.id, 120) || crypto.randomUUID();
+  const text = cleanText(message.text, 2000);
+  const images = normalizeImages(message.images);
+  const createdAt = cleanText(message.createdAt, 40) || new Date().toISOString();
+  return { id, role, text, images, createdAt };
+}
+
+function sanitizePetChats(value) {
+  if (!isPlainObject(value)) return {};
+  return Object.fromEntries(Object.entries(value).map(([petId, messages]) => [
+    cleanText(petId, 80),
+    Array.isArray(messages) ? messages.map(sanitizeChatMessage).filter(Boolean).slice(-200) : [],
+  ]).filter(([petId]) => petId));
 }
 
 function friendSummary(user, moodEntry = null) {
@@ -689,6 +709,26 @@ async function handleUser(req, res, segments, body) {
   return false;
 }
 
+async function handlePetChats(req, res, segments, body) {
+  if (segments[1] !== "pet-chats") return false;
+  const user = authenticate(req);
+  db.petChats[user.id] = sanitizePetChats(db.petChats[user.id] || {});
+
+  if (segments.length === 2 && req.method === "GET") {
+    sendJson(res, 200, { chats: db.petChats[user.id] });
+    return true;
+  }
+
+  if (segments.length === 2 && req.method === "PUT") {
+    db.petChats[user.id] = sanitizePetChats(body.chats || body);
+    await persistDb();
+    sendJson(res, 200, { chats: db.petChats[user.id] });
+    return true;
+  }
+
+  return false;
+}
+
 async function handleAi(req, res, segments, body) {
   if (segments[2] !== "chat" || segments[3] !== "completions" || req.method !== "POST") return false;
   enforceRateLimit(req, "ai", 80, 60 * 60 * 1000);
@@ -941,7 +981,7 @@ function decodeSegment(value) {
 async function handleApi(req, res, url) {
   try {
     const segments = url.pathname.split("/").filter(Boolean).map(decodeSegment);
-    const body = ["POST", "PATCH", "DELETE"].includes(req.method || "") ? await readJsonBody(req) : {};
+    const body = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method || "") ? await readJsonBody(req) : {};
 
     if (segments[1] === "health" && req.method === "GET") {
       sendJson(res, 200, {
@@ -955,6 +995,7 @@ async function handleApi(req, res, url) {
 
     const handled = await handleAuth(req, res, segments, body) ||
       await handleUser(req, res, segments, body) ||
+      await handlePetChats(req, res, segments, body) ||
       await handleAi(req, res, segments, body) ||
       await handlePublicDiaries(req, res, segments, body) ||
       await handleFriends(req, res, segments, body) ||

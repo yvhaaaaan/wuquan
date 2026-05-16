@@ -594,6 +594,40 @@ function saveUserProfile(nextProfile, sync = true) {
   if (sync && authState.token) syncProfileToServer();
 }
 
+function mergeChatStores(serverChats = {}, localChats = {}) {
+  const merged = { ...(serverChats || {}) };
+  Object.entries(localChats || {}).forEach(([petId, messages]) => {
+    if (!Array.isArray(messages) || merged[petId]?.length) return;
+    merged[petId] = messages;
+  });
+  return merged;
+}
+
+async function loadChatMessagesFromServer() {
+  if (!authState.token) return;
+  try {
+    const data = await serverRequest("/api/pet-chats");
+    const localChats = loadJson(CHAT_KEY, {});
+    chatMessages = mergeChatStores(data.chats || {}, localChats);
+    await syncChatMessagesToServer();
+    localStorage.removeItem(CHAT_KEY);
+  } catch (error) {
+    console.warn("Chat sync load failed:", error);
+  }
+}
+
+async function syncChatMessagesToServer() {
+  if (!authState.token) return;
+  try {
+    await serverRequest("/api/pet-chats", {
+      method: "PUT",
+      body: JSON.stringify({ chats: chatMessages }),
+    });
+  } catch (error) {
+    console.warn("Chat sync save failed:", error);
+  }
+}
+
 async function syncProfileToServer() {
   try {
     await serverRequest("/api/user/me", {
@@ -682,7 +716,7 @@ async function reportPublicItem(targetId, targetType = "diary") {
 
 async function blockUser(userId, displayName = "该用户") {
   if (!userId) return;
-  if (!confirm(`拉黑 ${displayName} 吗？`)) return;
+  if (!confirm(`拉黑 ${displayName} 吗？\n\n确认后会隐藏对方内容、移除好友/匹配，并删除你和对方的聊天记录。`)) return;
   if (!safetyState.blockedUsers.includes(userId)) safetyState.blockedUsers.push(userId);
   saveSafety();
   try {
@@ -695,11 +729,12 @@ async function blockUser(userId, displayName = "该用户") {
   }
   humanFriends = humanFriends.filter((friend) => friend.id !== userId);
   friendMatches = friendMatches.filter((friend) => friend.id !== userId);
+  delete chatMessages[userId];
   saveHumanFriends();
   saveFriendMatches();
-  saveJson(CHAT_KEY, chatMessages);
+  await syncChatMessagesToServer();
   renderAll();
-  toast("已拉黑并隐藏相关内容");
+  toast("已拉黑，相关内容和聊天记录已删除");
 }
 
 function demoFriend(seedMood = userProfile.todayMood || "平静", index = 0) {
@@ -1413,7 +1448,7 @@ function getChatMessages(petId) {
       text: `我是${pet.name}，${pet.persona}。我现在${petEmotion(pet)}，你可以把不好开口的话慢慢告诉我。`,
       createdAt: new Date().toISOString(),
     }];
-    saveJson(CHAT_KEY, chatMessages);
+    syncChatMessagesToServer();
   }
   return chatMessages[pet.id];
 }
@@ -1528,7 +1563,7 @@ async function sendChatMessage(text, images = []) {
     images,
     createdAt: new Date().toISOString(),
   });
-  saveJson(CHAT_KEY, chatMessages);
+  await syncChatMessagesToServer();
   renderChat();
 
   messages.push({
@@ -1548,7 +1583,7 @@ async function sendChatMessage(text, images = []) {
     text: reply,
     createdAt: new Date().toISOString(),
   });
-  saveJson(CHAT_KEY, chatMessages);
+  await syncChatMessagesToServer();
   renderChat();
 }
 
@@ -1560,7 +1595,9 @@ function renderProfile() {
   $("#profileTitle").textContent = userProfile.name || "我的吾圈树洞";
   $("#profileEyebrow").textContent = `吾圈 ID：${userProfile.id}`;
   $("#profileSummary").textContent = `${userProfile.bio || "只属于自己的树洞"} · 已经投递 ${diaries.length} 个树洞`;
-  $("#accountTitle").textContent = authState.token ? `${userProfile.name} 的个人界面` : "登录后同步你的个人界面";
+  $("#accountTitle").textContent = authState.token
+    ? `${userProfile.name} 的个人界面`
+    : (activeAuthMode === "register" ? "注册吾圈账号" : "登录吾圈");
   $("#accountStatus").textContent = authState.token ? "已登录" : "未登录";
   $("#authForm").hidden = Boolean(authState.token);
   $("#profileForm").hidden = !authState.token;
@@ -1830,7 +1867,7 @@ function showMessageMenu(messageId) {
     if (action === "delete") {
       const index = messages.findIndex((item) => item.id === messageId);
       if (index !== -1) messages.splice(index, 1);
-      saveJson(CHAT_KEY, chatMessages);
+      await syncChatMessagesToServer();
       renderChat();
       dialog.close();
     }
@@ -1839,11 +1876,11 @@ function showMessageMenu(messageId) {
       const lastUser = [...messages.slice(0, index)].reverse().find((item) => item.role === "user");
       if (index !== -1 && lastUser) {
         messages.splice(index, 1);
-        saveJson(CHAT_KEY, chatMessages);
+        await syncChatMessagesToServer();
         renderChat();
         const reply = await aiPetChatReply(pet, lastUser.text || "", lastUser.images || []);
         messages.splice(index, 0, { id: uid(), role: "pet", text: reply, createdAt: new Date().toISOString() });
-        saveJson(CHAT_KEY, chatMessages);
+        await syncChatMessagesToServer();
         renderChat();
       }
       dialog.close();
@@ -1931,6 +1968,7 @@ function bindEvents() {
     $("#authName").closest("label").hidden = activeAuthMode !== "register";
     $("#authPassword").autocomplete = activeAuthMode === "register" ? "new-password" : "current-password";
     $("#authSubmit").textContent = activeAuthMode === "register" ? "注册" : "登录";
+    $("#accountTitle").textContent = activeAuthMode === "register" ? "注册吾圈账号" : "登录吾圈";
   });
   $("#authName").closest("label").hidden = true;
 
@@ -1964,6 +2002,7 @@ function bindEvents() {
       }, false);
       $("#authName").value = "";
       $("#authPassword").value = "";
+      await loadChatMessagesFromServer();
       renderAll();
       showTab("feed");
       toast(isRegister ? "注册成功" : "登录成功");
@@ -1987,6 +2026,7 @@ function bindEvents() {
 
   $("#logoutButton").addEventListener("click", () => {
     saveAuth({});
+    chatMessages = {};
     renderAll();
     showTab("profile");
     toast("已退出登录");
@@ -2385,10 +2425,15 @@ function restoreTheme() {
   setTheme(saved === "blue" ? "blue" : saved);
 }
 
-enableNativeMode();
-bindEvents();
-restoreTheme();
-renderEmojiBars();
-renderAll();
-if (!authState.token) showTab("profile");
-maybeShowDailyGreeting();
+async function initApp() {
+  enableNativeMode();
+  bindEvents();
+  restoreTheme();
+  renderEmojiBars();
+  if (authState.token) await loadChatMessagesFromServer();
+  renderAll();
+  if (!authState.token) showTab("profile");
+  maybeShowDailyGreeting();
+}
+
+initApp();
