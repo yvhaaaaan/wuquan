@@ -1268,6 +1268,7 @@ async function aiPetChatReply(pet, text, images = []) {
   try {
     const currentEmotion = petEmotion(pet, text);
     const history = getChatMessages(pet.id)
+      .filter((message) => !message.typing)
       .slice(0, -1)
       .slice(-20)
       .map((message) => ({
@@ -1786,7 +1787,6 @@ function getChatMessages(petId) {
       text: `我是${pet.name}，${pet.persona}。我现在${petEmotion(pet)}，你可以把不好开口的话慢慢告诉我。`,
       createdAt: new Date().toISOString(),
     }];
-    syncChatMessagesToServer();
   }
   return chatMessages[pet.id];
 }
@@ -1985,7 +1985,6 @@ async function sendChatMessage(text, images = []) {
     return;
   }
   const pet = getPet(activeChatPetId) || PETS[0];
-  const messages = getChatMessages(pet.id);
   const userMessage = {
     id: uid(),
     role: "user",
@@ -1993,29 +1992,39 @@ async function sendChatMessage(text, images = []) {
     images,
     createdAt: new Date().toISOString(),
   };
-  messages.push(userMessage);
-  await appendPetChatMessageToServer(pet.id, userMessage, true);
+  getChatMessages(pet.id).push(userMessage);
+  renderChat();
+  const userSaved = await appendPetChatMessageToServer(pet.id, userMessage, true);
+  if (!userSaved) {
+    chatMessages[pet.id] = getChatMessages(pet.id).filter((message) => message.id !== userMessage.id);
+    renderChat();
+    return;
+  }
   renderChat();
 
-  messages.push({
+  const typingMessage = {
     id: `typing-${Date.now()}`,
     role: "pet",
     text: `${pet.name}正在输入...`,
     typing: true,
     createdAt: new Date().toISOString(),
-  });
+  };
+  getChatMessages(pet.id).push(typingMessage);
   renderChat();
   const reply = await aiPetChatReply(pet, text, images);
-  const typingIndex = messages.findIndex((message) => message.typing);
-  if (typingIndex !== -1) messages.splice(typingIndex, 1);
+  chatMessages[pet.id] = getChatMessages(pet.id).filter((message) => !message.typing);
   const petMessage = {
     id: uid(),
     role: "pet",
     text: reply,
     createdAt: new Date().toISOString(),
   };
-  messages.push(petMessage);
-  await appendPetChatMessageToServer(pet.id, petMessage, true);
+  getChatMessages(pet.id).push(petMessage);
+  renderChat();
+  const replySaved = await appendPetChatMessageToServer(pet.id, petMessage, true);
+  if (!replySaved) {
+    chatMessages[pet.id] = getChatMessages(pet.id).filter((message) => message.id !== petMessage.id);
+  }
   renderChat();
 }
 
