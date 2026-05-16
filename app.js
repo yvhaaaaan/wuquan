@@ -977,11 +977,17 @@ function assistantTextFromResponse(data) {
     if (!part) return "";
     if (Array.isArray(part)) return part.map(textFromPart).join("");
     if (typeof part === "string") return part;
+    if (typeof part.value === "string") return part.value;
+    if (typeof part.message === "string") return part.message;
     if (typeof part.text === "string") return part.text;
     if (typeof part.content === "string") return part.content;
     if (typeof part.output_text === "string") return part.output_text;
+    if (typeof part.reasoning_content === "string") return part.reasoning_content;
+    if (part.message) return textFromPart(part.message);
+    if (part.delta) return textFromPart(part.delta);
     if (Array.isArray(part.text)) return part.text.map(textFromPart).join("");
     if (Array.isArray(part.content)) return part.content.map(textFromPart).join("");
+    if (Array.isArray(part.output)) return part.output.map(textFromPart).join("");
     return "";
   };
   const textFromMessage = (message) => {
@@ -1104,25 +1110,24 @@ function extractJsonArray(raw) {
 }
 
 async function requestChatCompletion(messages, extra = {}) {
-  const payload = {
-    body: {
-      model: settings.apiModel || DEFAULT_SETTINGS.apiModel,
-      messages,
-      temperature: 0.85,
-      max_tokens: 600,
-      ...extra,
-    },
+  const body = {
+    model: settings.apiModel || DEFAULT_SETTINGS.apiModel,
+    messages,
+    temperature: 0.85,
+    max_tokens: 600,
+    ...extra,
   };
 
-  const nativeResponse = nativeChatCompletion(payload);
-  if (nativeResponse) {
+  try {
+    return await serverRequest("/api/ai/chat/completions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  } catch (serverError) {
+    const nativeResponse = nativeChatCompletion({ body });
+    if (!nativeResponse) throw serverError;
     return JSON.parse(await nativeResponse);
   }
-
-  return serverRequest("/api/ai/chat/completions", {
-    method: "POST",
-    body: JSON.stringify(payload.body),
-  });
 }
 
 async function aiCommentForPets(text, pets, mood, images = []) {
@@ -1186,7 +1191,11 @@ async function aiPetChatReply(pet, text, images = []) {
       temperature: 0.72,
       max_tokens: 320,
     });
-    return (assistantTextFromResponse(data) || localPetChatReply(pet, text, images)).trim();
+    const reply = assistantTextFromResponse(data);
+    if (reply) return reply.trim();
+    console.warn("AI response contained no assistant text:", data);
+    toast("AI 返回了数据，但没有解析到正文，请看控制台响应结构");
+    return `${pet.name}：AI 已返回，但正文格式还没匹配上。`;
   } catch (error) {
     console.warn("Pet chat fallback:", error);
     toast("聊天接口暂时没接上，已用本地萌宠语气回复");

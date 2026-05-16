@@ -637,7 +637,7 @@ async function proxyAiCompletion(body) {
         },
       };
     }
-    return { status: 200, payload };
+    return { status: 200, payload, headers: { "X-Wuquan-AI": "provider" } };
   } catch (error) {
     return {
       status: 502,
