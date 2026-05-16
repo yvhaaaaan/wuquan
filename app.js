@@ -1555,6 +1555,7 @@ async function sendChatMessage(text, images = []) {
 function renderProfile() {
   const likes = diaries.reduce((sum, item) => sum + item.likes.length, 0);
   const comments = diaries.reduce((sum, item) => sum + item.comments.length, 0);
+  document.body.classList.toggle("logged-out", !authState.token);
   $("#profileAvatar").style.cssText = avatarStyle(userProfile.avatar);
   $("#profileTitle").textContent = userProfile.name || "我的吾圈树洞";
   $("#profileEyebrow").textContent = `吾圈 ID：${userProfile.id}`;
@@ -1699,7 +1700,6 @@ function renderAll() {
 function showTab(tab) {
   if (!authState.token && tab !== "profile") {
     tab = "profile";
-    toast("请先登录吾圈账号");
   }
   $$(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
   $$(".view").forEach((view) => view.classList.toggle("active", view.id === `${tab}View`));

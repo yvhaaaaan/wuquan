@@ -4367,6 +4367,47 @@ select {
   display: none !important;
 }
 
+body.logged-out .topbar,
+body.logged-out .tabs,
+body.logged-out #profileView > :not(.account-card),
+body.logged-out #profileView .profile-form {
+  display: none !important;
+}
+
+body:not(.logged-out) #profileView > .account-card {
+  display: none !important;
+}
+
+body:not(.logged-out) #profileView > .personalize-card {
+  display: none !important;
+}
+
+body.logged-out #profileView.active {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+body.logged-out .view,
+body.logged-out .native-app .view {
+  padding: 18px;
+}
+
+body.logged-out .account-card {
+  width: min(100%, 520px);
+  margin: 0;
+  padding: 24px 20px;
+}
+
+body.logged-out .account-card .section-head {
+  align-items: flex-start;
+}
+
+body.logged-out .auth-form {
+  gap: 14px;
+}
+
 .wallpaper-choice-grid button {
   aspect-ratio: 9 / 14;
   border: 2px solid transparent;
