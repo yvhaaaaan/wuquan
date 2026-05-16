@@ -708,19 +708,26 @@ function mergeChatStores(serverChats = {}, localChats = {}) {
   return merged;
 }
 
+function chatStoreHasMessages(store = {}) {
+  return Object.values(store || {}).some((messages) => Array.isArray(messages) && messages.length > 0);
+}
+
 async function loadChatMessagesFromServer() {
   if (!authState.token) return;
   try {
     const data = await serverRequest("/api/pet-chats");
+    const serverChats = data.chats || {};
     const shouldMigrateLocal = loadJson(CHAT_MIGRATED_KEY, "") !== userProfile.id;
     const localChats = shouldMigrateLocal ? loadJson(CHAT_KEY, {}) : {};
-    chatMessages = shouldMigrateLocal
-      ? mergeChatStores(data.chats || {}, localChats)
-      : mergeChatStores(data.chats || {}, {});
-    if (shouldMigrateLocal) {
-      await syncChatMessagesToServer();
-      saveJson(CHAT_MIGRATED_KEY, userProfile.id);
+    const shouldUseLocal =
+      shouldMigrateLocal && chatStoreHasMessages(localChats) && !chatStoreHasMessages(serverChats);
+    chatMessages = shouldUseLocal
+      ? mergeChatStores(serverChats, localChats)
+      : mergeChatStores(serverChats, {});
+    if (shouldUseLocal) {
+      await syncChatMessagesToServer(true);
     }
+    if (shouldMigrateLocal) saveJson(CHAT_MIGRATED_KEY, userProfile.id);
     localStorage.removeItem(CHAT_KEY);
     renderChat();
   } catch (error) {
@@ -728,15 +735,18 @@ async function loadChatMessagesFromServer() {
   }
 }
 
-async function syncChatMessagesToServer() {
-  if (!authState.token) return;
+async function syncChatMessagesToServer(showError = false) {
+  if (!authState.token) return false;
   try {
     await serverRequest("/api/pet-chats", {
       method: "PUT",
       body: JSON.stringify({ chats: chatMessages }),
     });
+    return true;
   } catch (error) {
     console.warn("Chat sync save failed:", error);
+    if (showError) toast("聊天保存到服务器失败，请检查网络后再试");
+    return false;
   }
 }
 
@@ -924,7 +934,7 @@ async function blockUser(userId, displayName = "该用户") {
   delete chatMessages[userId];
   saveHumanFriends();
   saveFriendMatches();
-  await syncChatMessagesToServer();
+  await syncChatMessagesToServer(true);
   renderAll();
   toast("已拉黑，相关内容和聊天记录已删除");
 }
@@ -977,10 +987,11 @@ async function fetchFriendMatches() {
       method: "POST",
       body: JSON.stringify({ mood: userProfile.todayMood, date: userProfile.todayMoodDate, profile: userProfile }),
     });
-    friendMatches = normalizeHumanFriends(data.matches || data.users || []);
+    const nextMatches = normalizeHumanFriends(data.matches || data.users || []);
+    if (nextMatches.length || !friendMatches.length) friendMatches = nextMatches;
   } catch (error) {
     console.warn("Friend match fallback:", error);
-    friendMatches = [demoFriend(userProfile.todayMood, 0), demoFriend(userProfile.todayMood, 1)];
+    if (!friendMatches.length) friendMatches = [demoFriend(userProfile.todayMood, 0), demoFriend(userProfile.todayMood, 1)];
   }
   friendMatches = friendMatches.filter((item) => (
     !humanFriends.some((friend) => friend.id === item.id) &&
@@ -1710,13 +1721,22 @@ function renderTimeline() {
 }
 
 function renderPetFilters() {
-  const categories = ["全部", ...new Set(PETS.map((pet) => pet.category))];
+  const categories = ["全部", "今日真人", ...new Set(PETS.map((pet) => pet.category))];
   $("#petFilters").innerHTML = categories.map((category) => (
     `<button class="${category === activePetCategory ? "active" : ""}" data-category="${category}">${category}</button>`
   )).join("");
 }
 
 function renderPets() {
+  if (activePetCategory === "今日真人") {
+    const items = [...friendMatches, ...humanFriends].filter((friend, index, list) => (
+      list.findIndex((item) => item.id === friend.id) === index
+    ));
+    $("#petGrid").innerHTML = items.length
+      ? items.map((friend) => humanFriendCard(friend, humanFriends.some((item) => item.id === friend.id) ? "friend" : "match")).join("")
+      : `<div class="empty-friend">今天还没有真人匹配。先去“我的”选择今日心情，再回来刷新。</div>`;
+    return;
+  }
   const pets = activePetCategory === "全部" ? PETS : PETS.filter((pet) => pet.category === activePetCategory);
   $("#petGrid").innerHTML = pets.map((pet) => `
     <article class="pet-card clickable" data-open-chat="${pet.id}" role="button" tabindex="0" aria-label="和${pet.name}聊天">
@@ -1853,7 +1873,7 @@ async function sendChatMessage(text, images = []) {
     images,
     createdAt: new Date().toISOString(),
   });
-  await syncChatMessagesToServer();
+  await syncChatMessagesToServer(true);
   renderChat();
 
   messages.push({
@@ -1873,7 +1893,7 @@ async function sendChatMessage(text, images = []) {
     text: reply,
     createdAt: new Date().toISOString(),
   });
-  await syncChatMessagesToServer();
+  await syncChatMessagesToServer(true);
   renderChat();
 }
 
@@ -2158,7 +2178,7 @@ function showMessageMenu(messageId) {
     if (action === "delete") {
       const index = messages.findIndex((item) => item.id === messageId);
       if (index !== -1) messages.splice(index, 1);
-      await syncChatMessagesToServer();
+      await syncChatMessagesToServer(true);
       renderChat();
       dialog.close();
     }
@@ -2167,11 +2187,11 @@ function showMessageMenu(messageId) {
       const lastUser = [...messages.slice(0, index)].reverse().find((item) => item.role === "user");
       if (index !== -1 && lastUser) {
         messages.splice(index, 1);
-        await syncChatMessagesToServer();
+        await syncChatMessagesToServer(true);
         renderChat();
         const reply = await aiPetChatReply(pet, lastUser.text || "", lastUser.images || []);
         messages.splice(index, 0, { id: uid(), role: "pet", text: reply, createdAt: new Date().toISOString() });
-        await syncChatMessagesToServer();
+        await syncChatMessagesToServer(true);
         renderChat();
       }
       dialog.close();
@@ -2526,6 +2546,21 @@ function bindEvents() {
   });
 
   $("#petGrid").addEventListener("click", (event) => {
+    const addButton = event.target.closest("[data-add-friend]");
+    if (addButton) {
+      addHumanFriend(addButton.dataset.addFriend);
+      return;
+    }
+    const stopButton = event.target.closest("[data-stop-friend]");
+    if (stopButton) {
+      stopHumanFriend(stopButton.dataset.stopFriend);
+      return;
+    }
+    const blockButton = event.target.closest("[data-block-friend]");
+    if (blockButton) {
+      blockHumanFriend(blockButton.dataset.blockFriend);
+      return;
+    }
     const card = event.target.closest("[data-open-chat]");
     if (!card) return;
     openChatWithPet(card.dataset.openChat);
