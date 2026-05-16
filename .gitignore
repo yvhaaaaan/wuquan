@@ -15,3 +15,8 @@ wuquan*.zip
 Thumbs.db
 
 娣诲姞鍒颁富灞忓箷
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
