@@ -101,6 +101,7 @@ const USER_PROFILE_KEY = "wuquan_user_profile_v1";
 const FRIENDS_KEY = "wuquan_human_friends_v1";
 const FRIEND_MATCHES_KEY = "wuquan_friend_matches_v1";
 const SAFETY_KEY = "wuquan_public_safety_v1";
+const CHAT_MIGRATED_KEY = "wuquan_pet_chats_migrated_v1";
 const DEFAULT_SETTINGS = {
   serverUrl: "https://wuquan.cc.cd",
   apiModel: "mimo-v2-omni",
@@ -663,10 +664,19 @@ async function loadUserStateFromServer() {
 }
 
 function mergeChatStores(serverChats = {}, localChats = {}) {
-  const merged = { ...(serverChats || {}) };
+  const merged = {};
+  const addMessages = (petId, messages) => {
+    if (!Array.isArray(messages)) return;
+    const existing = new Map((merged[petId] || []).map((message) => [message.id, message]));
+    messages.forEach((message) => {
+      if (!message?.id) return;
+      existing.set(message.id, message);
+    });
+    merged[petId] = [...existing.values()].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  };
+  Object.entries(serverChats || {}).forEach(([petId, messages]) => addMessages(petId, messages));
   Object.entries(localChats || {}).forEach(([petId, messages]) => {
-    if (!Array.isArray(messages) || merged[petId]?.length) return;
-    merged[petId] = messages;
+    addMessages(petId, messages);
   });
   return merged;
 }
@@ -675,10 +685,17 @@ async function loadChatMessagesFromServer() {
   if (!authState.token) return;
   try {
     const data = await serverRequest("/api/pet-chats");
-    const localChats = loadJson(CHAT_KEY, {});
-    chatMessages = mergeChatStores(data.chats || {}, localChats);
-    await syncChatMessagesToServer();
+    const shouldMigrateLocal = loadJson(CHAT_MIGRATED_KEY, "") !== userProfile.id;
+    const localChats = shouldMigrateLocal ? loadJson(CHAT_KEY, {}) : {};
+    chatMessages = shouldMigrateLocal
+      ? mergeChatStores(data.chats || {}, localChats)
+      : mergeChatStores(data.chats || {}, {});
+    if (shouldMigrateLocal) {
+      await syncChatMessagesToServer();
+      saveJson(CHAT_MIGRATED_KEY, userProfile.id);
+    }
     localStorage.removeItem(CHAT_KEY);
+    renderChat();
   } catch (error) {
     console.warn("Chat sync load failed:", error);
   }
@@ -898,6 +915,10 @@ function saveFriendMatches(sync = true) {
 }
 
 async function setTodayMood(mood) {
+  if (todayMoodIsFresh()) {
+    toast(`今天已经选择了「${userProfile.todayMood}」，明天再来换心情`);
+    return;
+  }
   saveUserProfile({ todayMood: mood, todayMoodDate: dateKey() });
   renderProfile();
   await fetchFriendMatches();
@@ -1814,7 +1835,7 @@ function renderHumanFriends() {
   $("#todayMoodStatus").textContent = mood || "未选择";
   const moodNode = $("#todayMoodPicker");
   if (moodNode) {
-    moodNode.innerHTML = TODAY_MOODS.map((item) => `<button type="button" class="${item === mood ? "active" : ""}" data-today-mood="${item}">${item}</button>`).join("");
+    moodNode.innerHTML = TODAY_MOODS.map((item) => `<button type="button" class="${item === mood ? "active" : ""}" data-today-mood="${item}" ${mood ? "disabled" : ""}>${item}</button>`).join("");
   }
   const matchesNode = $("#friendMatchList");
   if (matchesNode) {
@@ -2205,6 +2226,10 @@ function bindEvents() {
   $("#todayMoodPicker").addEventListener("click", async (event) => {
     const button = event.target.closest("[data-today-mood]");
     if (!button) return;
+    if (todayMoodIsFresh()) {
+      toast(`今天已经选择了「${userProfile.todayMood}」，明天再来换心情`);
+      return;
+    }
     await setTodayMood(button.dataset.todayMood);
   });
 
