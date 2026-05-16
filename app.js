@@ -1628,9 +1628,11 @@ function renderTimeline() {
     const previewLikePets = likePets.slice(0, 8);
     const hiddenLikeCount = Math.max(0, likePets.length - previewLikePets.length);
     const comments = item.comments.map((comment) => ({ ...comment, pet: getPet(comment.petId) })).filter((comment) => comment.pet);
-    const publicComments = getPublicComments(item).slice(-2);
-    const previewComments = comments.slice(0, 2);
+    const allPublicComments = getPublicComments(item);
+    const publicComments = allPublicComments.slice(-3);
+    const previewComments = comments.slice(-3);
     const hiddenCommentCount = Math.max(0, comments.length - previewComments.length);
+    const hiddenPublicCommentCount = Math.max(0, allPublicComments.length - publicComments.length);
     const statusText = item.aiStatus === "loading" ? "回声生成中" : item.aiStatus === "ai" ? "AI 回声" : "本地回声";
     const publicLabel = item.publicStatus === "withdrawn" ? "已撤回公开" : item.publicStatus === "synced" ? "公开树洞" : "公开待同步";
     const audienceText = item.audience === "public" ? publicLabel : "动物朋友";
@@ -1674,6 +1676,7 @@ function renderTimeline() {
             </div>
             ${item.audience === "public" ? `
               <div class="public-comment-inline">
+                <div class="public-comment-title">公开评论</div>
                 ${publicComments.length ? `<div class="public-comment-list compact">
                   ${publicComments.map((comment) => `
                     <div class="public-comment compact">
@@ -1685,6 +1688,7 @@ function renderTimeline() {
                     </div>
                   `).join("")}
                 </div>` : ""}
+                ${hiddenPublicCommentCount ? `<button class="more-comments" type="button" data-action="detail">查看全部 ${allPublicComments.length} 条评论</button>` : ""}
                 <form class="public-comment-form compact" data-public-comment-form="${item.id}">
                   <input maxlength="240" placeholder="直接评论公开树洞" required />
                   <button class="soft-button" type="submit">评论</button>

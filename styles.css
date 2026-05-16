@@ -4609,6 +4609,12 @@ body.logged-out .auth-form label[hidden] {
   margin-top: 10px;
 }
 
+.public-comment-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .public-comment-list.compact {
   gap: 6px;
 }
